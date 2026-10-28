@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Tackleball — NFL Edition</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Tackleball">
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="app">
+
+  <div id="screen-welcome" class="screen">
+    <div class="title-card">
+      <div class="logo">TACKLE<br>BALL</div>
+      <div class="sub">NFL EDITION · UNOFFICIAL FAN GAME</div>
+      <div class="welcome-blurb">A dice-driven, play-by-play football simulation. Pick your NFL team, call every play on offense, defense, and special teams, roll the d20 against the defense's DC, and chase the Super Bowl. Rules adapted from Pen &amp; Paper Football (John M. Stater, 2017).</div>
+      <button id="btn-enter" class="menu-btn enter-btn">ENTER THE STADIUM</button>
+    </div>
+  </div>
+
+  <div id="screen-title" class="screen">
+    <div class="title-card">
+      <div class="logo">TACKLE<br>BALL</div>
+      <div class="sub">NFL EDITION · UNOFFICIAL FAN GAME</div>
+      <div class="menu">
+        <button id="btn-exhibition" class="menu-btn">Exhibition Game</button>
+        <button id="btn-season" class="menu-btn">New Season</button>
+        <button id="btn-continue" class="menu-btn">Continue Season</button>
+        <button id="btn-teams" class="menu-btn">Teams &amp; Ratings</button>
+        <button id="btn-history" class="menu-btn">Career History</button>
+      </div>
+      <div class="foot">Rules adapted from Pen &amp; Paper Football (John M. Stater, 2017). Team names and colors are used in a fan context; ratings are game adaptations, not official NFL data.</div>
+    </div>
+  </div>
+
+  <div id="screen-teamselect" class="screen hidden">
+    <div class="panel">
+      <div class="panel-title" id="ts-title">Choose your team</div>
+      <div id="ts-grid" class="team-grid"></div>
+      <div class="row">
+        <button id="ts-random" class="menu-btn">Random Team</button>
+        <button id="ts-back" class="menu-btn ghost">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="screen-game" class="screen hidden">
+    <div id="scorebug"></div>
+    <div id="fieldwrap">
+      <canvas id="field"></canvas>
+      <div id="banner"></div>
+    </div>
+    <div id="feed"></div>
+    <div id="prompt"></div>
+    <div class="gamerow">
+      <button id="speedBtn" class="mini-btn">Speed: Normal</button>
+      <button id="quitBtn" class="mini-btn danger">Quit to Menu</button>
+    </div>
+    <div id="final" class="overlay hidden"></div>
+  </div>
+
+  <div id="screen-season" class="screen hidden">
+    <div class="panel">
+      <div id="season-head"></div>
+      <div id="season-body"></div>
+      <div id="season-feed"></div>
+      <div class="row">
+        <button id="ss-standings" class="menu-btn">Standings</button>
+        <button id="ss-menu" class="menu-btn ghost">Save &amp; Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="screen-info" class="screen hidden">
+    <div class="panel">
+      <div id="info-body"></div>
+      <button id="info-back" class="menu-btn">Back</button>
+    </div>
+  </div>
+
+  <div id="modal" class="overlay hidden">
+    <div class="modal-card">
+      <div id="modal-text"></div>
+      <button id="modal-ok" class="menu-btn">OK</button>
+    </div>
+  </div>
+
+</div>
+<script src="data.js"></script>
+<script src="engine.js"></script>
+<script src="ui.js"></script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function () { /* not available (e.g., local file) */ });
+  });
+}
+</script>
+</body>
+</html>
