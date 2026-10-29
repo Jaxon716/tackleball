@@ -529,7 +529,6 @@ function showStatsReportOverlay(game, title) {
         '<div class="final-score" style="font-size:22px">' + ut.abbr + ' ' + game.score[game.user.name] +
         ' — ' + game.score[game.ai.name] + ' ' + at.abbr + '</div>' +
         '<table class="stat-table">' + statHeader(game) + statRowsHtml(game) + '</table>' +
-        positionRatingsHtml(game) +
         '<button id="statsBtn" class="menu-btn">Continue</button>' +
       '</div>';
     $("#statsBtn").onclick = () => { o.classList.add("hidden"); res(); };
@@ -579,18 +578,6 @@ function statRowsHtml(game) {
   return h;
 }
 
-// Per-position ratings with roll modifiers for both teams
-function positionRatingsHtml(game) {
-  const u = TEAMS[game.user.name], a = TEAMS[game.ai.name];
-  const cell = (t, k) => t[k] + " (+" + bonus(t[k]) + ")";
-  let h = '<table class="stat-table"><tr><th>Position</th><th>' + u.abbr + '</th><th>' + a.abbr + '</th></tr>';
-  for (const k of STAT_NAMES) {
-    h += '<tr><td>' + k + '</td><td>' + cell(u, k) + '</td><td>' + cell(a, k) + '</td></tr>';
-  }
-  h += '</table>';
-  return h;
-}
-
 function showFinalOverlay(game) {
   return new Promise(res => {
     const o = $("#final");
@@ -604,7 +591,6 @@ function showFinalOverlay(game) {
         '<div class="final-score">' + ut.abbr + " " + us + " — " + as + " " + at.abbr + '</div>' +
         '<div class="final-verdict">' + verdict + '</div>' +
         '<table class="stat-table">' + statHeader(game) + statRowsHtml(game) + '</table>' +
-        positionRatingsHtml(game) +
         '<button id="finalBtn" class="menu-btn">Continue</button>' +
       '</div>';
     $("#finalBtn").onclick = () => { o.classList.add("hidden"); res(); };
