@@ -898,7 +898,7 @@ class Game {
         return;
       }
       // End-zone punt return, resolved from the returner-relative spot of -deep.
-      const [gain, rrs] = roll(3, 6, true);
+      let [gain, rrs] = roll(3, 6, true);
       const bonus = deep + 8;
       gain += bonus;
       deff.stats.stYards += gain;
