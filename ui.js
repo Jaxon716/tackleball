@@ -575,6 +575,24 @@ function statRowsHtml(game) {
   h += row("Fumbles", su.fumbles, sa.fumbles);
   h += row("Return yards", su.stYards, sa.stYards);
   h += row("Return TDs", su.stTDs, sa.stTDs);
+  // Injury report: injured positions, severity, and modifier loss per team
+  const uTeam = game.user, aTeam = game.ai;
+  const injuredPos = [...uTeam.minorInjuries, ...aTeam.minorInjuries, ...uTeam.majorInjuries, ...aTeam.majorInjuries];
+  if (injuredPos.length) {
+    h += sec("INJURY REPORT");
+    for (const k of [...new Set(injuredPos)]) {
+      const cell = t => {
+        const m = t.minorInjuries.filter(x => x === k).length;
+        const M = t.majorInjuries.filter(x => x === k).length;
+        if (!m && !M) return "Healthy";
+        const parts = [];
+        if (m) parts.push("minor ×" + m + " (rest of game)");
+        if (M) parts.push("major ×" + M + " (rest of season)");
+        return parts.join(", ") + " — modifier −" + (m + M);
+      };
+      h += row(k + " injured", cell(uTeam), cell(aTeam));
+    }
+  }
   return h;
 }
 

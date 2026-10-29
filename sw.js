@@ -1,5 +1,5 @@
 // Tackleball offline cache: serves the whole game from cache once installed.
-const CACHE_NAME = "tackleball-v7";
+const CACHE_NAME = "tackleball-v8";
 const ASSETS = [
   "./index.html",
   "./data.js",
