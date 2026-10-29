@@ -529,6 +529,7 @@ function showStatsReportOverlay(game, title) {
         '<div class="final-score" style="font-size:22px">' + ut.abbr + ' ' + game.score[game.user.name] +
         ' — ' + game.score[game.ai.name] + ' ' + at.abbr + '</div>' +
         '<table class="stat-table">' + statHeader(game) + statRowsHtml(game) + '</table>' +
+        positionRatingsHtml(game) +
         '<button id="statsBtn" class="menu-btn">Continue</button>' +
       '</div>';
     $("#statsBtn").onclick = () => { o.classList.add("hidden"); res(); };
@@ -542,22 +543,40 @@ function statHeader(game) {
 
 function statRowsHtml(game) {
   const su = game.user.stats, sa = game.ai.stats;
-  const rows = [
-    ["Total yards", su.passYards + su.rushYards, sa.passYards + sa.rushYards],
-    ["Pass yards", su.passYards, sa.passYards],
-    ["Rush yards", su.rushYards, sa.rushYards],
-    ["Total plays", su.plays, sa.plays],
-    ["Touchdowns", su.touchdowns, sa.touchdowns],
-    ["Field goals", su.fieldGoals, sa.fieldGoals],
-    ["1st downs", su.firstDowns, sa.firstDowns],
-    ["Completions", su.completions + "/" + su.passes, sa.completions + "/" + sa.passes],
-    ["Turnovers", su.turnovers, sa.turnovers],
-    ["Sacks", su.sacks, sa.sacks],
-    ["Penalties", su.penalties, sa.penalties],
-    ["Punts", su.punts, sa.punts],
-  ];
-  return rows.map(r =>
-    "<tr><td>" + r[0] + "</td><td>" + r[1] + "</td><td>" + r[2] + "</td></tr>").join("");
+  const row = (label, a, b) =>
+    "<tr><td>" + label + "</td><td>" + a + "</td><td>" + b + "</td></tr>";
+  const sec = title =>
+    '<tr class="stat-section"><td colspan="3">' + title + '</td></tr>';
+  let h = sec("TEAM STATS");
+  h += row("Total yards", su.passYards + su.rushYards, sa.passYards + sa.rushYards);
+  h += row("Pass yards", su.passYards, sa.passYards);
+  h += row("Rush yards", su.rushYards, sa.rushYards);
+  h += row("Total plays", su.plays, sa.plays);
+  h += row("Touchdowns", su.touchdowns, sa.touchdowns);
+  h += row("Passing TDs", su.passTDs, sa.passTDs);
+  h += row("Rushing TDs", su.rushTDs, sa.rushTDs);
+  h += row("1st downs", su.firstDowns, sa.firstDowns);
+  h += row("Completions", su.completions + "/" + su.passes, sa.completions + "/" + sa.passes);
+  h += row("Turnovers", su.turnovers, sa.turnovers);
+  h += row("Sacks allowed", su.sacks, sa.sacks);
+  h += row("Penalties", su.penalties, sa.penalties);
+  h += row("Punts", su.punts, sa.punts);
+  h += row("Injuries", su.injuries, sa.injuries);
+  h += sec("OFFENSE — POSITION STATS");
+  h += row("QB pass yards", su.qbYards, sa.qbYards);
+  h += row("QB pass TDs", su.qbTDs, sa.qbTDs);
+  h += row("RB rush yards", su.rbYards, sa.rbYards);
+  h += row("RB rush TDs", su.rbTDs, sa.rbTDs);
+  h += row("WR receiving yards", su.wrYards, sa.wrYards);
+  h += row("WR receiving TDs", su.wrTDs, sa.wrTDs);
+  h += sec("DEFENSE & SPECIAL TEAMS");
+  h += row("Sacks made", su.sacksMade, sa.sacksMade);
+  h += row("Interceptions made", su.intsMade, sa.intsMade);
+  h += row("Interceptions thrown", su.intsThrown, sa.intsThrown);
+  h += row("Fumbles", su.fumbles, sa.fumbles);
+  h += row("Return yards", su.stYards, sa.stYards);
+  h += row("Return TDs", su.stTDs, sa.stTDs);
+  return h;
 }
 
 function showFinalOverlay(game) {
@@ -573,6 +592,7 @@ function showFinalOverlay(game) {
         '<div class="final-score">' + ut.abbr + " " + us + " — " + as + " " + at.abbr + '</div>' +
         '<div class="final-verdict">' + verdict + '</div>' +
         '<table class="stat-table">' + statHeader(game) + statRowsHtml(game) + '</table>' +
+        positionRatingsHtml(game) +
         '<button id="finalBtn" class="menu-btn">Continue</button>' +
       '</div>';
     $("#finalBtn").onclick = () => { o.classList.add("hidden"); res(); };

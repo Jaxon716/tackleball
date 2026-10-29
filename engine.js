@@ -42,7 +42,10 @@ class Team {
     this.majorInjuries = [];
     this.stats = { plays: 0, rushes: 0, rushYards: 0, passes: 0, completions: 0, passYards: 0,
                    firstDowns: 0, turnovers: 0, sacks: 0, punts: 0, fieldGoals: 0,
-                   touchdowns: 0, penalties: 0, injuries: 0 };
+                   touchdowns: 0, penalties: 0, injuries: 0,
+                   qbYards: 0, rbYards: 0, wrYards: 0, qbTDs: 0, rbTDs: 0, wrTDs: 0,
+                   passTDs: 0, rushTDs: 0, stYards: 0, stTDs: 0,
+                   fumbles: 0, intsThrown: 0, intsMade: 0, sacksMade: 0 };
   }
   b(stat) {
     return Math.max(0, this.bonuses[stat]
@@ -78,6 +81,7 @@ class Game {
     this.userDefenseActionBonus = 0;
     this.userActionBonus = 0;
     this.pendingDefense = null;
+    this.lastTDScorer = null;
   }
 
   other(team) { return team === this.user ? this.ai : this.user; }
@@ -241,13 +245,16 @@ class Game {
       await this.pres.moveBall(this.absOf(receiving, spot), end >= 100 ? tdX : this.absOf(receiving, end), 900);
       await this._say(receiving.name + " return: " + gain + " yards (" + rollText(rolls) +
                       ") — to their own " + Math.min(99, end) + ".");
+      receiving.stats.stYards += gain;
       if (Math.floor(Math.random() * 20) === 0) {
         await this._say("Kickoff return FUMBLE! Resolved at the midpoint of the return.", "turnover");
         await this.pres.banner("FUMBLE!", "bad", 900);
+        receiving.stats.fumbles++;
         this.yard = Math.max(1, Math.min(99, spot + Math.floor(gain / 2)));
         await this.resolveFumble(receiving, kicking);
         if (this.offense === receiving) await this.setDrive(receiving, kicking, this.yard);
       } else if (end >= 100) {
+        this.lastTDScorer = "st";
         await this.touchdown(receiving, kicking);
       } else {
         await this.setDrive(receiving, kicking, Math.min(99, end));
@@ -471,6 +478,7 @@ class Game {
     if (d20 === 1) {
       if (special === "Reverse") {
         await this._say("Reverse rule: a natural 1 always causes a fumble.", "bad");
+        off.stats.fumbles++;
         await this.resolveFumble(off, deff);
         turnover = this.offense !== off;
       } else if (kind === "pass") {
@@ -478,6 +486,7 @@ class Game {
         if (1 + Math.floor(Math.random() * 6) <= chance) {
           turnover = true;
           off.stats.turnovers++; deff.stats.turnovers++;
+          off.stats.intsThrown++; deff.stats.intsMade++;
           await this.pres.banner("INTERCEPTED!", "bad", 1200);
           const [thrown] = roll(2, 6, true);
           let [ret, rtr] = roll(3, 6, true);
@@ -488,9 +497,10 @@ class Game {
           await this.turnover(off, deff, spot);
         } else {
           const [loss] = roll(1, 6, true);
-          off.stats.sacks++;
+          off.stats.sacks++; deff.stats.sacksMade++;
           await this._say("Sacked for a " + loss + "-yard loss.", "bad");
           off.stats.passYards -= loss;
+          off.stats.qbPassYards -= loss;
           await this.advance(off, -loss);
         }
       } else {
@@ -498,6 +508,7 @@ class Game {
         if (1 + Math.floor(Math.random() * 6) <= chance) {
           await this.pres.banner("FUMBLE!", "bad", 1000);
           await this._say("FUMBLE on the critical run failure!", "turnover");
+          off.stats.fumbles++;
           await this.resolveFumble(off, deff);
           turnover = true;
         } else {
@@ -520,6 +531,7 @@ class Game {
         await this.advance(off, -loss);
       } else if (special === "Hook & Lateral") {
         await this._say("Hook & Lateral fails: automatic fumble.", "bad");
+        off.stats.fumbles++;
         await this.pres.banner("FUMBLE!", "bad", 1000);
         await this.resolveFumble(off, deff);
         turnover = this.offense !== off;
@@ -527,6 +539,7 @@ class Game {
         const [loss] = roll(2, 6, true);
         await this._say("The blitz beats the play: loss of " + loss + " yards.", "bad");
         off.stats[kind === "pass" ? "passYards" : "rushYards"] -= loss;
+        if (kind === "pass") off.stats.qbPassYards -= loss; else off.stats.rbRushYards -= loss;
         await this.advance(off, -loss);
       } else if (kind === "pass") {
         await this._say("Incomplete pass. No gain.");
@@ -560,6 +573,13 @@ class Game {
       if (gained >= 25 && special !== "Hail Mary") gained = await this.footRace(off, gained);
       if (!turnover) {
         off.stats[kind === "pass" ? "passYards" : "rushYards"] += gained;
+        if (kind === "pass") {
+          off.stats.qbYards += gained;                     // QB throwing yards (incl. sack losses)
+          off.stats.wrYards += Math.max(0, gained);        // WR receiving yards (completions)
+        } else {
+          off.stats.rbYards += gained;
+        }
+        this.lastTDScorer = kind === "pass" ? "wr" : (special === "QB Sneak" ? "qb" : "rb");
         await this.advance(off, gained);
       }
       if (kind === "pass" && gained >= 0) off.stats.completions++;
@@ -745,6 +765,7 @@ class Game {
       team.minorInjuries.push(stat);
       team.stats.injuries++;
       await this._say("Injury roll: 1d6 = " + inj + " → " + stat + " injured.", "penalty");
+      await this.pres.banner("INJURY!", "injury", 1300);
       await this._say("Minor injury: " + team.name + " " + stat + " is reduced for the rest of this game.", "penalty");
       return;
     }
@@ -755,6 +776,7 @@ class Game {
       team.majorInjuries.push(stat);
       team.stats.injuries++;
       await this._say("Injury roll: 1d6 = " + inj + " → " + stat + " injured.", "penalty");
+      await this.pres.banner("MAJOR INJURY!", "injury", 1400);
       await this._say("Major injury: " + team.name + " " + stat + " is reduced for the remainder of the season.", "penalty");
       return;
     }
@@ -822,6 +844,7 @@ class Game {
       await this._say("Defensive pass interference: automatic completion for " + yards +
                       " yards (" + rollText(rolls) + ").", "penalty");
       if (this.yard >= 100) {
+        this.lastTDScorer = "wr";
         await this.pres.moveBall(this.absOf(off, playStartYard), this.absOf(off, 100) + (off === this.leftTeam ? 5 : -5));
         await this.touchdown(off, deff);
       }
@@ -878,6 +901,7 @@ class Game {
       const [gain, rrs] = roll(3, 6, true);
       const bonus = deep + 8;
       gain += bonus;
+      deff.stats.stYards += gain;
       await this._say(deff.name + " bring it out of the end zone (+" + bonus + " escape yardage) — " +
                       gain + " yards (" + rollText(rrs) + ").", "good");
       const end = -deep + gain;
@@ -889,6 +913,7 @@ class Game {
       const tdX = this.absOf(deff, 100) + (deff === this.leftTeam ? 5 : -5);
       await this.pres.moveBall(this.absOf(deff, -deep), end >= 100 ? tdX : this.absOf(deff, end), 800);
       if (end >= 100) {
+        this.lastTDScorer = "st";
         await this.touchdown(deff, off);
       } else {
         await this.setDrive(deff, off, Math.min(99, end));
@@ -912,6 +937,7 @@ class Game {
     } else {
       const [yards, rrs] = roll(3, 6, true);
       const final = receivingYard + yards;
+      deff.stats.stYards += yards;
       await this.pres.moveBall(this.absOf(deff, receivingYard), this.absOf(deff, Math.min(99, final)), 800);
       await this._say(deff.name + " return the punt " + yards + " yards (" + rollText(rrs) +
                       "), to their own " + Math.min(99, final) + ".");
@@ -965,6 +991,12 @@ class Game {
   async touchdown(off, deff) {
     this.score[off.name] += 6;
     off.stats.touchdowns++;
+    const scorer = this.lastTDScorer || "rb";
+    if (scorer === "qb") { off.stats.qbTDs++; off.stats.rushTDs++; }
+    else if (scorer === "wr") { off.stats.wrTDs++; off.stats.passTDs++; }
+    else if (scorer === "st") { off.stats.stTDs++; }
+    else { off.stats.rbTDs++; off.stats.rushTDs++; }
+    this.lastTDScorer = null;
     await this.pres.banner("TOUCHDOWN!", "good", 1600);
     await this._say("TOUCHDOWN " + off.name + "! " + this.scoreline(), "event");
     this.pres.updateBoard();

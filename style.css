@@ -130,6 +130,10 @@ body {
 }
 .bug-ticker .rz { color: #ff6b6b; animation: rzblink 1s step-end infinite alternate; }
 @keyframes rzblink { from { opacity: 1; } to { opacity: 0.4; } }
+.stat-section td {
+  background: #142642; color: var(--gold); font-weight: 800;
+  font-size: 10px; letter-spacing: 1.5px; padding: 4px 6px;
+}
 
 /* ---------- Field ---------- */
 #fieldwrap { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid #22385a; }
