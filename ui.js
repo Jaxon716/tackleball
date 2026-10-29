@@ -579,6 +579,18 @@ function statRowsHtml(game) {
   return h;
 }
 
+// Per-position ratings with roll modifiers for both teams
+function positionRatingsHtml(game) {
+  const u = TEAMS[game.user.name], a = TEAMS[game.ai.name];
+  const cell = (t, k) => t[k] + " (+" + bonus(t[k]) + ")";
+  let h = '<table class="stat-table"><tr><th>Position</th><th>' + u.abbr + '</th><th>' + a.abbr + '</th></tr>';
+  for (const k of STAT_NAMES) {
+    h += '<tr><td>' + k + '</td><td>' + cell(u, k) + '</td><td>' + cell(a, k) + '</td></tr>';
+  }
+  h += '</table>';
+  return h;
+}
+
 function showFinalOverlay(game) {
   return new Promise(res => {
     const o = $("#final");
