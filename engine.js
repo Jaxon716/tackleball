@@ -765,7 +765,7 @@ class Game {
       team.minorInjuries.push(stat);
       team.stats.injuries++;
       await this._say("Injury roll: 1d6 = " + inj + " → " + stat + " injured.", "penalty");
-      await this.pres.banner("INJURY!", "injury", 1300);
+            await this.pres.banner("INJURY: " + stat + " DOWN", "injury", 1300);
       await this._say("Minor injury: " + team.name + " " + stat + " is reduced for the rest of this game.", "penalty");
       return;
     }
@@ -776,7 +776,7 @@ class Game {
       team.majorInjuries.push(stat);
       team.stats.injuries++;
       await this._say("Injury roll: 1d6 = " + inj + " → " + stat + " injured.", "penalty");
-      await this.pres.banner("MAJOR INJURY!", "injury", 1400);
+      await this.pres.banner("MAJOR INJURY: " + stat, "injury", 1400);
       await this._say("Major injury: " + team.name + " " + stat + " is reduced for the remainder of the season.", "penalty");
       return;
     }

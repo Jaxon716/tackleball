@@ -150,6 +150,7 @@ body {
 #banner.good span { background: #123c1e; border-color: #35a35a; color: #b8f5c4; }
 #banner.bad span { background: #40121a; border-color: #c0455c; color: #ffc4cd; }
 #banner.penalty span { background: #ffd400; border-color: #7c6400; color: #2b2200; }
+#banner.injury span { background: #4a0e0e; border-color: #ff7b3a; color: #ffd0c0; }
 
 /* ---------- Feed ---------- */
 #feed {
