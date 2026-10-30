@@ -43,9 +43,9 @@ class Team {
     this.stats = { plays: 0, rushes: 0, rushYards: 0, passes: 0, completions: 0, passYards: 0,
                    firstDowns: 0, turnovers: 0, sacks: 0, punts: 0, fieldGoals: 0,
                    touchdowns: 0, penalties: 0, injuries: 0,
-                   qbYards: 0, rbYards: 0, wrYards: 0, qbTDs: 0, rbTDs: 0, wrTDs: 0,
+                   qbYards: 0, rbYards: 0, wrYards: 0, qbTDs: 0, rbTDs: 0, wrTDs: 0, qbPassTDs: 0,
                    passTDs: 0, rushTDs: 0, stYards: 0, stTDs: 0,
-                   fumbles: 0, intsThrown: 0, intsMade: 0, sacksMade: 0 };
+                   fumbles: 0, intsThrown: 0, intsMade: 0, sacksMade: 0, sackYards: 0 };
   }
   b(stat) {
     return Math.max(0, this.bonuses[stat]
@@ -500,7 +500,8 @@ class Game {
           off.stats.sacks++; deff.stats.sacksMade++;
           await this._say("Sacked for a " + loss + "-yard loss.", "bad");
           off.stats.passYards -= loss;
-          off.stats.qbPassYards -= loss;
+          off.stats.qbYards -= loss;
+          off.stats.sackYards += loss;
           await this.advance(off, -loss);
         }
       } else {
@@ -515,6 +516,7 @@ class Game {
           const [loss] = roll(1, 6, true);
           await this._say("Tackled behind the line for a " + loss + "-yard loss.", "bad");
           off.stats.rushYards -= loss;
+          off.stats.rbYards -= loss;
           await this.advance(off, -loss);
         }
       }
@@ -523,11 +525,14 @@ class Game {
         const [loss, lr] = roll(1, 6, true);
         await this._say("Double Pass fails: loss of " + loss + " yards (" + rollText(lr) + ").", "bad");
         off.stats.passYards -= loss;
+        off.stats.qbYards -= loss;
+        off.stats.wrYards -= loss;
         await this.advance(off, -loss);
       } else if (special === "Option") {
         const [loss] = roll(1, 6, true);
         await this._say("Option fails: loss of " + loss + " yards.", "bad");
         off.stats.rushYards -= loss;
+        off.stats.rbYards -= loss;
         await this.advance(off, -loss);
       } else if (special === "Hook & Lateral") {
         await this._say("Hook & Lateral fails: automatic fumble.", "bad");
@@ -539,7 +544,7 @@ class Game {
         const [loss] = roll(2, 6, true);
         await this._say("The blitz beats the play: loss of " + loss + " yards.", "bad");
         off.stats[kind === "pass" ? "passYards" : "rushYards"] -= loss;
-        if (kind === "pass") off.stats.qbPassYards -= loss; else off.stats.rbRushYards -= loss;
+        if (kind === "pass") { off.stats.qbYards -= loss; off.stats.sackYards += loss; } else off.stats.rbYards -= loss;
         await this.advance(off, -loss);
       } else if (kind === "pass") {
         await this._say("Incomplete pass. No gain.");
@@ -575,7 +580,7 @@ class Game {
         off.stats[kind === "pass" ? "passYards" : "rushYards"] += gained;
         if (kind === "pass") {
           off.stats.qbYards += gained;                     // QB throwing yards (incl. sack losses)
-          off.stats.wrYards += Math.max(0, gained);        // WR receiving yards (completions)
+          off.stats.wrYards += gained;                     // WR receiving yards (incl. completed losses)
         } else {
           off.stats.rbYards += gained;
         }
@@ -841,6 +846,7 @@ class Game {
       const [yards, rolls] = roll(3, 6, false);
       this.yard = Math.min(100, this.yard + yards);
       off.stats.completions++; off.stats.passYards += yards;
+      off.stats.qbYards += yards; off.stats.wrYards += yards;
       await this._say("Defensive pass interference: automatic completion for " + yards +
                       " yards (" + rollText(rolls) + ").", "penalty");
       if (this.yard >= 100) {
@@ -993,7 +999,7 @@ class Game {
     off.stats.touchdowns++;
     const scorer = this.lastTDScorer || "rb";
     if (scorer === "qb") { off.stats.qbTDs++; off.stats.rushTDs++; }
-    else if (scorer === "wr") { off.stats.wrTDs++; off.stats.passTDs++; }
+    else if (scorer === "wr") { off.stats.wrTDs++; off.stats.passTDs++; off.stats.qbPassTDs++; }
     else if (scorer === "st") { off.stats.stTDs++; }
     else { off.stats.rbTDs++; off.stats.rushTDs++; }
     this.lastTDScorer = null;

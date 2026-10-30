@@ -557,13 +557,13 @@ function statRowsHtml(game) {
   h += row("1st downs", su.firstDowns, sa.firstDowns);
   h += row("Completions", su.completions + "/" + su.passes, sa.completions + "/" + sa.passes);
   h += row("Turnovers", su.turnovers, sa.turnovers);
-  h += row("Sacks allowed", su.sacks, sa.sacks);
+  h += row("Sacks allowed", su.sacks + " (" + su.sackYards + " yds)", sa.sacks + " (" + sa.sackYards + " yds)");
   h += row("Penalties", su.penalties, sa.penalties);
   h += row("Punts", su.punts, sa.punts);
   h += row("Injuries", su.injuries, sa.injuries);
   h += sec("OFFENSE — POSITION STATS");
   h += row("QB pass yards", su.qbYards, sa.qbYards);
-  h += row("QB pass TDs", su.qbTDs, sa.qbTDs);
+  h += row("QB pass TDs", su.qbPassTDs, sa.qbPassTDs);
   h += row("RB rush yards", su.rbYards, sa.rbYards);
   h += row("RB rush TDs", su.rbTDs, sa.rbTDs);
   h += row("WR receiving yards", su.wrYards, sa.wrYards);
