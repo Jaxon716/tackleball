@@ -999,11 +999,8 @@ function renderSeasonHub() {
   $("#season-feed").innerHTML = "";
 }
 
-$("#btn-season").onclick = () => {
-  if (career.current) {
-    modal("You have a saved season in progress.\nStarting a new one deletes it.\nUse Load Season to continue, or delete it from the season hub.");
-    return;
-  }
+$("#btn-season").onclick = async () => {
+  if (career.current) await modal("You have a saved season in progress.\nStarting a new one deletes it.");
   openTeamSelect("Choose your franchise", null, team => {
     career.careerTeam = team;
     career.injuries[team] = [];
