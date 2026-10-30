@@ -684,6 +684,7 @@ function loadCareer() {
         d.ratings = d.ratings || {};
         d.history = d.history || [];
         d.current = d.current || null;
+        d.year = d.year || 1;
         d.injuries = d.injuries || {};
         d.stats = Object.assign({ seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 }, d.stats || {});
         return d;
@@ -967,7 +968,7 @@ function renderSeasonHub() {
   cur = career.current;
   const r = cur.records[cur.userTeam];
   $("#season-head").innerHTML =
-    '<div class="sh-line">SEASON ' + cur.seasonNumber + ' — ' + cur.userTeam + '</div>' +
+    '<div class="sh-line">YEAR ' + (career.year || 1) + ' OF 5 · SEASON ' + cur.seasonNumber + ' — ' + cur.userTeam + '</div>' +
     '<div class="sh-record">' + r.W + '-' + r.L + '-' + r.T + ' · PF ' + r.PF + ' · PA ' + r.PA + '</div>' +
     ((career.injuries[cur.userTeam] || []).length ?
       '<div class="sh-record" style="color:#ff8f8f">SEASON INJURIES: ' + career.injuries[cur.userTeam].join(", ") + '</div>' : '') +
@@ -1002,7 +1003,9 @@ function renderSeasonHub() {
 $("#btn-season").onclick = async () => {
   if (career.current) await modal("You have a saved season in progress.\nStarting a new one deletes it.");
   openTeamSelect("Choose your franchise", null, team => {
+    const fresh = !career.careerTeam;
     career.careerTeam = team;
+    if (fresh) career.year = 1;
     career.injuries[team] = [];
     career.stats.seasonsStarted++;
     career.current = {
@@ -1163,41 +1166,67 @@ async function runPlayoffs() {
   completeSeason(champion);
 }
 
-function offseasonDev(team) {
-  const msgs = [];
-  const t = TEAMS[team];
-  for (let i = 0; i < 2; i++) {
-    const idx = Math.floor(Math.random() * 6);
-    const key = STAT_NAMES[idx];
-    if (t[key] < 18) {
-      t[key]++;
-      msgs.push(team + " " + key + " improves to " + t[key] + ".");
-    } else {
-      msgs.push(team + " " + key + " is already maxed at 18.");
+function rerollLeague() {
+  // Offseason rolls: every team's six ratings drift by up to ±3 on the 3-18 scale.
+  const before = {};
+  for (const n in TEAMS) before[n] = teamRatings(n).ovr;
+  for (const n in TEAMS) {
+    const t = TEAMS[n];
+    for (const k of STAT_NAMES) {
+      const d = (1 + Math.floor(Math.random() * 6)) - (1 + Math.floor(Math.random() * 6));
+      const key = k.toLowerCase();
+      t[key] = Math.max(3, Math.min(18, t[key] + Math.max(-3, Math.min(3, d))));
     }
   }
-  return msgs;
+  let riser = null, faller = null;
+  for (const n in TEAMS) {
+    const d = teamRatings(n).ovr - before[n];
+    if (!riser || d > riser.d) riser = { n, d };
+    if (!faller || d < faller.d) faller = { n, d };
+  }
+  return { riser, faller };
 }
 
 function completeSeason(champion) {
   const r = cur.records[cur.userTeam];
   const team = cur.userTeam;
   const seasonNo = cur.seasonNumber;
+  const year = career.year || 1;
+  const myTitles = career.history.filter(i => i.champion === i.team).length + (champion === team ? 1 : 0);
   career.history.push({
-    season: seasonNo, team, W: r.W, L: r.L, T: r.T, PF: r.PF, PA: r.PA,
+    season: seasonNo, year, team, W: r.W, L: r.L, T: r.T, PF: r.PF, PA: r.PA,
     champion, date: new Date().toISOString().slice(0, 10),
   });
-  const msgs = offseasonDev(team);
+  const rolls = rerollLeague();
   career.ratings = exportRatings();
   career.injuries[team] = [];
   career.seasonNumber = seasonNo + 1;
   career.careerTeam = team;
   career.current = null;
   cur = null;
+  let endMsg = "";
+  if (year >= 5) {
+    // Five years in: career complete, summarize it and reset.
+    endMsg = "\n\n5-YEAR CAREER COMPLETE" +
+             "\nSeasons played: " + career.history.length +
+             "\nSuper Bowl titles with your team: " + myTitles +
+             "\n\nTap New Season to begin year 1 of a fresh career.";
+    career.history = [];
+    career.injuries = {};
+    career.careerTeam = null;
+    career.year = 1;
+  } else {
+    career.year = year + 1;
+  }
   saveCareer();
   renderTitle();
-  modal("SEASON " + seasonNo + " COMPLETE\n" + team + ": " + r.W + "-" + r.L + "-" + r.T +
-        "\nSuper Bowl champion: " + champion + "\n\nOffseason:\n" + msgs.join("\n"))
+  modal("SEASON " + seasonNo + " COMPLETE" +
+        "\n" + team + ": " + r.W + "-" + r.L + "-" + r.T + " (year " + year + " of 5)" +
+        "\nSuper Bowl champion: " + champion +
+        "\n\nOFFSEASON ROLLS — all 32 teams re-rolled their ratings" +
+        "\nBiggest riser: " + rolls.riser.n + " (OVR +" + rolls.riser.d + ")" +
+        "\nBiggest faller: " + rolls.faller.n + " (OVR " + rolls.faller.d + ")" +
+        endMsg)
     .then(() => showScreen("screen-title"));
 }
 
@@ -1240,9 +1269,9 @@ $("#btn-history").onclick = () => {
   if (!career.history.length) {
     html += '<div class="muted">No completed seasons yet. Start a season to build your career.</div>';
   } else {
-    html += '<table class="info-table"><tr><th>Season</th><th>Team</th><th>Record</th><th>Champion</th></tr>';
+    html += '<table class="info-table"><tr><th>Year</th><th>Season</th><th>Team</th><th>Record</th><th>Champion</th></tr>';
     for (const it of career.history) {
-      html += '<tr><td>' + it.season + '</td><td class="chip-cell">' + chip(it.team) + it.team +
+      html += '<tr><td>' + (it.year || '—') + '</td><td>' + it.season + '</td><td class="chip-cell">' + chip(it.team) + it.team +
               '</td><td>' + it.W + '-' + it.L + '-' + it.T + '</td><td class="chip-cell">' +
               chip(it.champion) + it.champion + '</td></tr>';
     }
