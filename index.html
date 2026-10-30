@@ -92,6 +92,23 @@
   </div>
 
 </div>
+<script>
+// Show any unexpected error on screen instead of failing silently (e.g., a dead button).
+window.onerror = function (msg, src, line) {
+  try {
+    var m = document.getElementById("modal");
+    var where = (src ? String(src).split("/").pop() : "") + (line ? ":" + line : "");
+    document.getElementById("modal-text").textContent = "ERROR: " + msg + (where ? "\n(" + where + ")" : "");
+    m.classList.remove("hidden");
+    document.getElementById("modal-ok").onclick = function () { m.classList.add("hidden"); };
+  } catch (e) {}
+  return false;
+};
+window.addEventListener("unhandledrejection", function (e) {
+  var r = e && e.reason;
+  window.onerror(String((r && r.message) || r || "unhandled error"), "", "");
+});
+</script>
 <script src="data.js"></script>
 <script src="engine.js"></script>
 <script src="ui.js"></script>
