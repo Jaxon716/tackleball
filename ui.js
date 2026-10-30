@@ -691,7 +691,7 @@ function loadCareer() {
       }
     }
   } catch (e) {}
-  return { careerTeam: null, seasonNumber: 1, ratings: {}, history: [], current: null };
+  return { careerTeam: null, seasonNumber: 1, ratings: {}, history: [], current: null, year: 1, injuries: {}, stats: { seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 } };
 }
 
 function saveCareer() {
@@ -1003,6 +1003,8 @@ function renderSeasonHub() {
 $("#btn-season").onclick = async () => {
   if (career.current) await modal("You have a saved season in progress.\nStarting a new one deletes it.");
   openTeamSelect("Choose your franchise", null, team => {
+    career.injuries = career.injuries || {};
+    career.stats = career.stats || { seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 };
     const fresh = !career.careerTeam;
     career.careerTeam = team;
     if (fresh) career.year = 1;
