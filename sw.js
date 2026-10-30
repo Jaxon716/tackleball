@@ -1,5 +1,7 @@
 // Tackleball offline cache: serves the whole game from cache once installed.
-const CACHE_NAME = "tackleball-v10";
+// App files (html/js/css/json) are fetched network-first with a cache fallback,
+// so updates arrive on the next open; only static assets (icon) are cache-first.
+const CACHE_NAME = "tackleball-v11";
 const ASSETS = [
   "./index.html",
   "./data.js",
@@ -28,16 +30,21 @@ self.addEventListener("activate", event => {
 
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
+  const path = new URL(event.request.url).pathname;
+  const isAppFile = path.endsWith("/") || /\.(html|js|css|json)$/.test(path);
+  if (!isAppFile) {
+    event.respondWith(caches.match(event.request).then(hit => hit || fetch(event.request)));
+    return;
+  }
   event.respondWith(
-    caches.match(event.request).then(hit =>
-      hit ||
-      fetch(event.request).then(resp => {
-        if (resp && resp.status === 200 && resp.url.startsWith("http")) {
-          const copy = resp.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
-        }
-        return resp;
-      }).catch(() => caches.match("./index.html"))
+    fetch(event.request).then(resp => {
+      if (resp && resp.status === 200 && resp.url.startsWith("http")) {
+        const copy = resp.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+      }
+      return resp;
+    }).catch(() =>
+      caches.match(event.request).then(hit => hit || caches.match("./index.html"))
     )
   );
 });
