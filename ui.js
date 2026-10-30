@@ -694,7 +694,16 @@ function loadCareer() {
 }
 
 function saveCareer() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(career)); } catch (e) {}
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(career));
+  } catch (e) {
+    if (!window.__saveWarned) {
+      window.__saveWarned = true;
+      try {
+        modal("WARNING: your browser is blocking saved progress (seasons and stats will not persist).\n\nThis happens on proxy/redirect links. Fix: add the game to your Home Screen from its official link and save from there.");
+      } catch (err) {}
+    }
+  }
 }
 
 function applyRatings() {
