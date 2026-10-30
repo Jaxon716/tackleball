@@ -642,7 +642,7 @@ const pres = {
 
 /* ================= Game launch ================= */
 
-async function launchGame(userTeam, aiTeam, userHome) {
+async function launchGame(userTeam, aiTeam, userHome, seasonInjuries) {
   showScreen("screen-game");
   $("#feed").innerHTML = "";
   $("#prompt").innerHTML = "";
@@ -650,6 +650,9 @@ async function launchGame(userTeam, aiTeam, userHome) {
   FIELD.off = null;
   FIELD.formation = null;
   const game = new Game(pres, userTeam, aiTeam, userHome);
+  for (const pos of (seasonInjuries || [])) {
+    if (!game.user.majorInjuries.includes(pos)) game.user.majorInjuries.push(pos);
+  }
   pres.game = game;
   pres.setEndZones(game.leftTeam, game.rightTeam);
   pres.setField(50, 50);
@@ -657,6 +660,7 @@ async function launchGame(userTeam, aiTeam, userHome) {
   try {
     const score = await game.start();
     pres.game = null;
+    lastGameMajorInjuries = [...new Set(game.user.majorInjuries)];
     return score;
   } catch (e) {
     if (e && e.abort) { pres.game = null; return null; }
@@ -667,6 +671,7 @@ async function launchGame(userTeam, aiTeam, userHome) {
 /* ================= Career / season persistence ================= */
 
 const SAVE_KEY = "gridiron_nfl_save_v1";
+let lastGameMajorInjuries = [];
 
 function loadCareer() {
   try {
@@ -679,6 +684,8 @@ function loadCareer() {
         d.ratings = d.ratings || {};
         d.history = d.history || [];
         d.current = d.current || null;
+        d.injuries = d.injuries || {};
+        d.stats = Object.assign({ seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 }, d.stats || {});
         return d;
       }
     }
@@ -715,8 +722,8 @@ let cur = null; // active season state (reference into career.current)
 
 let tsState = null; // { exclude, cb }
 
-function openTeamSelect(title, exclude, cb) {
-  tsState = { exclude, cb };
+function openTeamSelect(title, exclude, cb, backFn) {
+  tsState = { exclude, cb, backFn: backFn || (() => showScreen("screen-title")) };
   $("#ts-title").textContent = title;
   const grid = $("#ts-grid");
   grid.innerHTML = "";
@@ -742,12 +749,13 @@ $("#ts-random").onclick = () => {
   const names = Object.keys(TEAMS).filter(n => n !== tsState.exclude);
   tsState.cb(names[Math.floor(Math.random() * names.length)]);
 };
-$("#ts-back").onclick = () => showScreen("screen-title");
+$("#ts-back").onclick = () => (tsState && tsState.backFn ? tsState.backFn() : showScreen("screen-title"));
 
 $("#btn-exhibition").onclick = () => {
-  openTeamSelect("Choose your team", null, user => {
-    openTeamSelect("Choose the opponent", user, opp => startExhibition(user, opp));
+  const pickTeam = () => openTeamSelect("Choose your team", null, user => {
+    openTeamSelect("Choose the opponent", user, opp => startExhibition(user, opp), pickTeam);
   });
+  pickTeam();
 };
 
 async function startExhibition(user, opp) {
@@ -952,6 +960,8 @@ function renderSeasonHub() {
   $("#season-head").innerHTML =
     '<div class="sh-line">SEASON ' + cur.seasonNumber + ' — ' + cur.userTeam + '</div>' +
     '<div class="sh-record">' + r.W + '-' + r.L + '-' + r.T + ' · PF ' + r.PF + ' · PA ' + r.PA + '</div>' +
+    ((career.injuries[cur.userTeam] || []).length ?
+      '<div class="sh-record" style="color:#ff8f8f">SEASON INJURIES: ' + career.injuries[cur.userTeam].join(", ") + '</div>' : '') +
     '<div class="sh-week">' + (cur.week < 17 ? "WEEK " + (cur.week + 1) + " OF 17" : "REGULAR SEASON COMPLETE") + '</div>';
   const body = $("#season-body");
   body.innerHTML = "";
@@ -981,8 +991,14 @@ function renderSeasonHub() {
 }
 
 $("#btn-season").onclick = () => {
+  if (career.current) {
+    modal("You have a saved season in progress.\nStarting a new one deletes it.\nUse Load Season to continue, or delete it from the season hub.");
+    return;
+  }
   openTeamSelect("Choose your franchise", null, team => {
     career.careerTeam = team;
+    career.injuries[team] = [];
+    career.stats.seasonsStarted++;
     career.current = {
       userTeam: team,
       seasonNumber: career.seasonNumber,
@@ -994,16 +1010,32 @@ $("#btn-season").onclick = () => {
     saveCareer();
     renderSeasonHub();
     showScreen("screen-season");
-  });
+  }, () => showScreen("screen-title"));
 };
 
 $("#btn-continue").onclick = () => {
-  if (!career.current) return;
+  if (!career.current) { modal("No saved season to load.\nStart a new season first."); return; }
   renderSeasonHub();
   showScreen("screen-season");
 };
 
 $("#ss-menu").onclick = () => { saveCareer(); showScreen("screen-title"); };
+let ssDeleteArmed = false;
+$("#ss-delete").onclick = () => {
+  if (!ssDeleteArmed) {
+    ssDeleteArmed = true;
+    $("#ss-delete").textContent = "Tap again to confirm delete";
+    return;
+  }
+  ssDeleteArmed = false;
+  $("#ss-delete").textContent = "Delete Saved Season";
+  career.current = null;
+  cur = null;
+  saveCareer();
+  renderTitle();
+  showScreen("screen-title");
+  modal("Saved season deleted.");
+};
 $("#ss-standings").onclick = () => {
   if (!cur) return;
   showInfo(standingsHtml(cur.records), "screen-season");
@@ -1021,7 +1053,8 @@ async function playWeek() {
     if (home === myTeam || away === myTeam) {
       const userTeam = home === myTeam ? home : away;
       const aiTeam = userTeam === home ? away : home;
-      const score = await launchGame(userTeam, aiTeam, home === myTeam);
+      const seasonInj = (career.injuries[myTeam] || []).slice();
+      const score = await launchGame(userTeam, aiTeam, home === myTeam, seasonInj);
       if (score === null) {
         cur.records = snapRecords;
         cur.results[wi] = snapResults;
@@ -1031,6 +1064,11 @@ async function playWeek() {
         return;
       }
       hs = score[home]; as = score[away];
+      career.stats.gamesPlayed++;
+      const my = home === myTeam ? hs : as, their = home === myTeam ? as : hs;
+      if (my > their) career.stats.wins++; else if (their > my) career.stats.losses++; else career.stats.ties++;
+      career.injuries[myTeam] = [...new Set([...(career.injuries[myTeam] || []), ...lastGameMajorInjuries])];
+      saveCareer();
       addSeasonLine(TEAMS[away].abbr + " " + as + " — " + hs + " " + TEAMS[home].abbr + "  (your game)");
     } else {
       const s = quickLeagueGame(home, away);
@@ -1066,9 +1104,15 @@ async function playoffGame(a, b, round) {
   if (a === cur.userTeam || b === cur.userTeam) {
     const userTeam = a === cur.userTeam ? a : b;
     const aiTeam = userTeam === a ? b : a;
-    const score = await launchGame(userTeam, aiTeam, userTeam === a);
+    const seasonInj = (career.injuries[cur.userTeam] || []).slice();
+    const score = await launchGame(userTeam, aiTeam, userTeam === a, seasonInj);
     if (score === null) throw { abort: true };
     hs = score[a]; as = score[b];
+    career.stats.gamesPlayed++;
+    const my = score[cur.userTeam], their = score[cur.userTeam === a ? b : a];
+    if (my > their) career.stats.wins++; else if (their > my) career.stats.losses++; else career.stats.ties++;
+    career.injuries[cur.userTeam] = [...new Set([...(career.injuries[cur.userTeam] || []), ...lastGameMajorInjuries])];
+    saveCareer();
   } else {
     const s = quickLeagueGame(a, b);
     hs = s[a]; as = s[b];
@@ -1109,6 +1153,7 @@ async function runPlayoffs() {
     confWinners.push(await playoffGame(pair[0], pair[1], conf + " Championship"));
   }
   const champion = await playoffGame(confWinners[0], confWinners[1], "SUPER BOWL");
+  if (champion === cur.userTeam) career.stats.championships++;
   completeSeason(champion);
 }
 
@@ -1138,6 +1183,7 @@ function completeSeason(champion) {
   });
   const msgs = offseasonDev(team);
   career.ratings = exportRatings();
+  career.injuries[team] = [];
   career.seasonNumber = seasonNo + 1;
   career.careerTeam = team;
   career.current = null;
@@ -1181,6 +1227,10 @@ $("#btn-teams").onclick = () => {
 
 $("#btn-history").onclick = () => {
   let html = '<div class="panel-title">Career History</div>';
+  const s = career.stats;
+  html += '<div class="muted" style="font-size:12.5px;margin-bottom:10px">' +
+    s.seasonsStarted + ' seasons started · ' + s.gamesPlayed + ' games played (' +
+    s.wins + '-' + s.losses + '-' + s.ties + ') · ' + s.championships + ' championships</div>';
   if (!career.history.length) {
     html += '<div class="muted">No completed seasons yet. Start a season to build your career.</div>';
   } else {
@@ -1216,7 +1266,7 @@ $("#quitBtn").onclick = () => {
 /* ================= Title / init ================= */
 
 function renderTitle() {
-  $("#btn-continue").style.display = career.current ? "block" : "none";
+  $("#btn-continue").style.display = "block";
 }
 
 career = loadCareer();
