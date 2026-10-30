@@ -1,7 +1,7 @@
 // Tackleball offline cache: serves the whole game from cache once installed.
 // App files (html/js/css/json) are fetched network-first with a cache fallback,
 // so updates arrive on the next open; only static assets (icon) are cache-first.
-const CACHE_NAME = "tackleball-v11";
+const CACHE_NAME = "tackleball-v12";
 const ASSETS = [
   "./index.html",
   "./data.js",
