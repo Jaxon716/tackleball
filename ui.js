@@ -198,7 +198,7 @@ function animateBall(from, to, ms, yOffNorm, meta) {
       });
       ballAnim.anim = {
         kind: meta.kind, snapT, throwT,
-        carrierIn: "off", qbIdx, carrierIdx,
+        carrierIn: "off", qbIdx, carrierIdx, dirOff: G.dirOff,
         losPt: [G.X(from), G.ht / 2],
         qbFrom, carrierFrom,
         carrierTo: ballEnd,
@@ -478,9 +478,12 @@ function sfx(name) {
 
 // The carrier's exact position at time t — used for BOTH his helmet and the
 // ball, so the ball stays glued to him from the catch to the tackle.
+function easeInOut(t) {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
 function carrierPosAt(A, t) {
   const tRun = A.snapT ? Math.max(0, Math.min(1, (t - A.snapT) / (1 - A.snapT))) : t;
-  return curvePos(A.carrierFrom, A.carrierTo, 1 - Math.pow(1 - tRun, 3), A.bulge);
+  return curvePos(A.carrierFrom, A.carrierTo, easeInOut(tRun), A.bulge);
 }
 
 function drawField() {
@@ -620,7 +623,7 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
       const applyMoves = (moves, over) => {
         for (const M of moves || []) {
           const raw = Math.max(0, Math.min(1, (t - M.delay) / (1 - M.delay)));
-          over[M.i] = curvePos(M.from, M.to, 1 - Math.pow(1 - raw, 3), M.bulge);
+          over[M.i] = curvePos(M.from, M.to, easeInOut(raw), M.bulge);
         }
       };
       applyMoves(A.offMoves, overOff);
@@ -685,12 +688,17 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
           bx = A.qbFrom[0] + (cp[0] - A.qbFrom[0]) * ht2;
           by = A.qbFrom[1] + (cp[1] - A.qbFrom[1]) * ht2;
         } else {
+          // Carry phase: the ball is tucked in the carrier's arm —
+          // drawn from the exact same position as his helmet, so it sticks.
           const cp = carrierPosAt(A, t);
-          bx = cp[0]; by = cp[1];
+          bx = cp[0] - 5 * ((A.carrierTo[0] >= A.carrierFrom[0]) ? 1 : -1);
+          by = cp[1] + 4;
         }
       } else {
-        const cp = curvePos(A.carrierFrom, A.carrierTo, t, A.bulge);
-        bx = cp[0]; by = cp[1];
+        // Returns (punts/kickoffs/INTs/fumbles): same glue to the returner.
+        const cp = carrierPosAt(A, t);
+        bx = cp[0] - 5 * ((A.carrierTo[0] >= A.carrierFrom[0]) ? 1 : -1);
+        by = cp[1] + 4;
       }
     } else {
       const b = ballAnim.from + (ballAnim.to - ballAnim.from) * e;
