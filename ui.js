@@ -476,6 +476,13 @@ function sfx(name) {
   } catch (e) {}
 }
 
+// The carrier's exact position at time t — used for BOTH his helmet and the
+// ball, so the ball stays glued to him from the catch to the tackle.
+function carrierPosAt(A, t) {
+  const tRun = A.snapT ? Math.max(0, Math.min(1, (t - A.snapT) / (1 - A.snapT))) : t;
+  return curvePos(A.carrierFrom, A.carrierTo, 1 - Math.pow(1 - tRun, 3), A.bulge);
+}
+
 function drawField() {
   const c = $("#field");
   const wrap = $("#fieldwrap");
@@ -619,9 +626,9 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
       applyMoves(A.offMoves, overOff);
       applyMoves(A.defMoves, overDef);
       const carrierOver = A.carrierIn === "def" ? overDef : overOff;
-      // The carrier waits for the snap, then carries the ball downfield.
-      const tRun = A.snapT ? Math.max(0, (t - A.snapT) / (1 - A.snapT)) : tC;
-      if (!A.arc) carrierOver[A.carrierIdx] = curvePos(A.carrierFrom, A.carrierTo, 1 - Math.pow(1 - tRun, 3), A.bulge);
+      // The carrier waits for the snap, then carries the ball downfield — the
+      // ball is drawn from this same position, so it stays glued to him.
+      if (!A.arc) carrierOver[A.carrierIdx] = carrierPosAt(A, t);
       for (const P of A.pursuers) {
         const tt = Math.max(0, Math.min(1, (t - P.delay) / (1 - P.delay)));
         const over = P.i !== undefined ? (A.carrierIn === "def" ? overOff : overDef) : null;
@@ -659,25 +666,26 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
         by = A.carrierFrom[1] + (A.carrierTo[1] - A.carrierFrom[1]) * e
            - Math.sin(t * Math.PI) * ht * (A.arcHt || 0.22);
       } else if (A.kind === "pass" || A.kind === "run") {
-        // Snap → throw/handoff → carry: the ball first pops to the QB,
-        // then flies (pass) or is handed off (run), then rides the carrier.
+        // Snap → throw/handoff → carry: the ball first pops to the QB, then
+        // flies (pass) or is handed off (run), then rides the carrier — drawn
+        // from the carrier's own position so it never separates from him.
         if (t < A.snapT) {
           const st = t / A.snapT;
           bx = A.losPt[0] + (A.qbFrom[0] - A.losPt[0]) * st;
           by = A.losPt[1] + (A.qbFrom[1] - A.losPt[1]) * st;
         } else if (A.kind === "pass" && t < A.throwT) {
           const ct = (t - A.snapT) / (A.throwT - A.snapT);
-          const throwTo = curvePos(A.carrierFrom, A.carrierTo, A.throwT, A.bulge);
-          bx = A.qbFrom[0] + (throwTo[0] - A.qbFrom[0]) * ct;
-          by = A.qbFrom[1] + (throwTo[1] - A.qbFrom[1]) * ct - Math.sin(ct * Math.PI) * ht * 0.12;
+          const catchPt = carrierPosAt(A, A.throwT);
+          bx = A.qbFrom[0] + (catchPt[0] - A.qbFrom[0]) * ct;
+          by = A.qbFrom[1] + (catchPt[1] - A.qbFrom[1]) * ct - Math.sin(ct * Math.PI) * ht * 0.12;
         } else if (t < A.throwT) {
           // Handoff: ball travels from the QB into the runner's grasp.
           const ht2 = (t - A.snapT) / (A.throwT - A.snapT);
-          const cp = curvePos(A.carrierFrom, A.carrierTo, t, A.bulge);
+          const cp = carrierPosAt(A, t);
           bx = A.qbFrom[0] + (cp[0] - A.qbFrom[0]) * ht2;
           by = A.qbFrom[1] + (cp[1] - A.qbFrom[1]) * ht2;
         } else {
-          const cp = curvePos(A.carrierFrom, A.carrierTo, t, A.bulge);
+          const cp = carrierPosAt(A, t);
           bx = cp[0]; by = cp[1];
         }
       } else {
@@ -932,7 +940,10 @@ const pres = {
     if (los != null) FIELD.los = los;
     FIELD.firstDown = (firstDown == null) ? FIELD.los : firstDown;
     FIELD.ball = (ball != null) ? ball : FIELD.los;
-    FIELD.dir = FIELD.firstDown >= FIELD.los ? 1 : -1;
+    // The arrow follows the offense's driving direction — during kicks (where
+    // the first-down marker sits on the LOS) that's the only reliable signal.
+    FIELD.dir = FIELD.off ? (FIELD.off === FIELD.left ? 1 : -1)
+              : (FIELD.firstDown >= FIELD.los ? 1 : -1);
   },
   updateBoard() { renderScorebug(); },
   ask(prompt, options) { return askUI(prompt, options); },

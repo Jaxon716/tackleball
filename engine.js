@@ -982,9 +982,10 @@ class Game {
 
   async fieldGoal(off, deff, pat = false) {
     if (pat) {
-      // Spot the extra point at the 15 — the snap comes from the 8.
-      this.yard = 15;
-      this.lineToGain = 15;
+      // Spot the extra point at the defense's 15 (offense-relative 85) —
+      // the snap comes from 7 yards behind it, kicking at the END ZONE JUST SCORED IN.
+      this.yard = 85;
+      this.lineToGain = 85;
       this.toGo = 0;
       this.down = 0;
     }
@@ -1065,8 +1066,8 @@ class Game {
     if (choice === "Kick PAT") {
       await this.fieldGoal(off, deff, true);
     } else {
-      // Two-point tries line up at the 15 too, with a goal-line feel.
-      this.yard = 15; this.lineToGain = 100; this.toGo = 0; this.down = 0;
+      // Two-point tries line up at the defense's 15 too, goal to go.
+      this.yard = 85; this.lineToGain = 100; this.toGo = 0; this.down = 0;
       this.totalPlays++; this.roundInQ++;
       let kind;
       if (off === this.user) {
