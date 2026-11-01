@@ -1371,44 +1371,85 @@ $("#ss-standings").onclick = () => {
   showInfo(standingsHtml(cur.records), "screen-season");
 };
 
+// Sim injuries: a simmed game has a chance of a season injury at a random
+// position for either team — recorded into the career injury list.
+function simInjuries(home, away) {
+  const news = [];
+  const positions = ["QB", "RB", "WR", "LM", "LB", "DB"];
+  for (const t of [home, away]) {
+    if (Math.random() < 0.22) {
+      const pos = positions[Math.floor(Math.random() * positions.length)];
+      career.injuries[t] = career.injuries[t] || [];
+      if (!career.injuries[t].includes(pos)) {
+        career.injuries[t].push(pos);
+        news.push(TEAMS[t].abbr + " " + pos + " — injured (out for the season)");
+      }
+    }
+  }
+  return news;
+}
+
+// The Week Recap: the other games' finals and the injury news, shown
+// before your own game — like the NFL's weekly scoreboard show.
+function recapText(wi, games, injNews) {
+  let out = "WEEK " + (wi + 1) + " — AROUND THE LEAGUE\n\n";
+  for (const r of games) {
+    out += TEAMS[r.away].abbr + " " + r.as + " — " + r.hs + " " + TEAMS[r.home].abbr + "\n";
+  }
+  if (injNews.length) {
+    out += "\nINJURY NEWS:\n" + injNews.join("\n");
+  } else {
+    out += "\nNo reported injuries around the league.";
+  }
+  return out;
+}
+
 async function playWeek() {
   const wi = cur.week;
   const myTeam = cur.userTeam;
   // Snapshot so quitting mid-week never double-counts games already simmed.
   const snapRecords = JSON.parse(JSON.stringify(cur.records));
   const snapResults = (cur.results[wi] || []).slice();
+  // The rest of the league plays FIRST — check the scores and injury
+  // report before taking the field, like the NFL's weekly news show.
+  const otherGames = [], injNews = [];
   for (const g of cur.schedule[wi]) {
     const home = g[0], away = g[1];
-    let hs, as;
-    if (home === myTeam || away === myTeam) {
-      const userTeam = home === myTeam ? home : away;
-      const aiTeam = userTeam === home ? away : home;
-      const seasonInj = (career.injuries[myTeam] || []).slice();
-      const score = await launchGame(userTeam, aiTeam, home === myTeam, seasonInj);
-      if (score === null) {
-        cur.records = snapRecords;
-        cur.results[wi] = snapResults;
-        saveCareer();
-        renderSeasonHub();
-        showScreen("screen-season");
-        return;
-      }
-      hs = score[home]; as = score[away];
-      career.stats.gamesPlayed++;
-      const my = home === myTeam ? hs : as, their = home === myTeam ? as : hs;
-      if (my > their) career.stats.wins++; else if (their > my) career.stats.losses++; else career.stats.ties++;
-      career.injuries[myTeam] = [...new Set([...(career.injuries[myTeam] || []), ...lastGameMajorInjuries])];
-      saveCareer();
-      addSeasonLine(TEAMS[away].abbr + " " + as + " — " + hs + " " + TEAMS[home].abbr + "  (your game)");
-    } else {
-      const s = quickLeagueGame(home, away);
-      hs = s[home]; as = s[away];
-      addSeasonLine("SIM: " + TEAMS[away].abbr + " " + as + " — " + hs + " " + TEAMS[home].abbr);
-      await delay(120);
-    }
+    if (home === myTeam || away === myTeam) continue;
+    const s = quickLeagueGame(home, away);
+    const hs = s[home], as = s[away];
     recordResult(cur.records, home, away, hs, as);
     cur.results[wi] = cur.results[wi] || [];
     cur.results[wi].push({ home, away, hs, as });
+    otherGames.push({ home, away, hs, as });
+    injNews.push(...simInjuries(home, away));
+  }
+  if (otherGames.length) {
+    saveCareer();
+    await modal(recapText(wi, otherGames, injNews));
+  }
+  for (const g of cur.schedule[wi]) {
+    const home = g[0], away = g[1];
+    if (home !== myTeam && away !== myTeam) continue;
+    const userTeam = home === myTeam ? home : away;
+    const aiTeam = userTeam === home ? away : home;
+    const seasonInj = (career.injuries[myTeam] || []).slice();
+    const score = await launchGame(userTeam, aiTeam, home === myTeam, seasonInj);
+    if (score === null) {
+      cur.records = snapRecords;
+      cur.results[wi] = snapResults;
+      saveCareer();
+      renderSeasonHub();
+      showScreen("screen-season");
+      return;
+    }
+    const hs = score[home]; const as = score[away];
+    career.stats.gamesPlayed++;
+    const my = home === myTeam ? hs : as, their = home === myTeam ? as : hs;
+    if (my > their) career.stats.wins++; else if (their > my) career.stats.losses++; else career.stats.ties++;
+    career.injuries[myTeam] = [...new Set([...(career.injuries[myTeam] || []), ...lastGameMajorInjuries])];
+    saveCareer();
+    addSeasonLine(TEAMS[away].abbr + " " + as + " — " + hs + " " + TEAMS[home].abbr + "  (your game)");
   }
   cur.week++;
   saveCareer();

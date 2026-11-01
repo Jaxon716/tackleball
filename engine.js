@@ -848,10 +848,36 @@ class Game {
         { label: "Decline — play stands", value: "Decline", group: "PENALTY" }]);
       decline = d === "Decline";
     } else {
+      // The AI weighs the penalty like a real coordinator: it compares the
+      // play's actual outcome against where the flag would move the ball,
+      // including automatic first downs and field-position swings.
       const playGain = this.yard - playStartYard;
-      if ([14, 15, 16, 17, 18].includes(foul)) decline = false;
-      else if (offensiveFoul) decline = playGain > penaltyYards;
-      else decline = playGain >= penaltyYards;
+      const scoredTD = this.yard >= 100;
+      const playFirstDown = !scoredTD && this.yard >= this.lineToGain;
+      if (scoredTD) {
+        // A touchdown on the field beats any yardage — unless the flag cancels it.
+        decline = !offensiveFoul; // defensive flag can't erase a score; offensive one can
+      } else if (offensiveFoul) {
+        // Offense fouled: accepting shoves them backward and replays/loses the
+        // down — always at least as good as letting the play stand.
+        decline = false;
+      } else {
+        // Defense fouled: accepting hands the offense yardage (and often an
+        // automatic first down). Decline when the play's own result was just
+        // as good for them — a first down already gained at a spot at least
+        // as deep, or a gain bigger than the flag's yardage.
+        const spotAfterPenalty = Math.min(99, playStartYard + penaltyYards);
+        const wouldAutoFirst = [13, 14, 15, 16, 17, 18].includes(foul);
+        decline = playFirstDown && !wouldAutoFirst && this.yard >= spotAfterPenalty - 3
+                  || playGain > penaltyYards;
+        // But never decline a flag that would hand the offense a free first
+        // down in scoring range — points outweigh a decent gain.
+        if (decline && wouldAutoFirst && spotAfterPenalty >= 75) decline = false;
+        // Leading late, the AI offense accepts marginal flags: the replayed
+        // down and extra yardage burn more clock than the play stood.
+        const margin = this.score[off.name] - this.score[deff.name];
+        if (decline && this.q >= 4 && margin > 0 && playGain < penaltyYards + 8) decline = false;
+      }
       await this._say("AI " + (decline ? "declines" : "accepts") + " the penalty.");
     }
     if (decline) {
