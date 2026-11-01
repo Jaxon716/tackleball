@@ -126,7 +126,9 @@ function animateBall(from, to, ms, yOffNorm, meta) {
     ballAnim.from = from; ballAnim.to = to;
     ballAnim.yOff = yOffNorm || 0;
     ballAnim.start = performance.now(); ballAnim.dur = dur;
-    // Live-play carrier animation (QB throw, WR/RB run, defender pursuit).
+    // Live-play carrier animation (QB throw, WR/RB run, defender pursuit),
+    // extended to kick/interception/fumble returns: the returner carries the
+    // ball on their side of the ball while the cover team converges on them.
     ballAnim.anim = null;
     if (meta && (meta.kind === "run" || meta.kind === "pass") && FIELD.formation) {
       const G = animGeom();
@@ -156,7 +158,7 @@ function animateBall(from, to, ms, yOffNorm, meta) {
       const catchY = G.ht / 2 + (Math.random() - 0.5) * G.ht * 0.08;
       ballAnim.anim = {
         kind: meta.kind, throwT: meta.kind === "pass" ? 0.3 : 0,
-        qbIdx, carrierIdx,
+        carrierIn: "off", qbIdx, carrierIdx,
         qbFrom: fromPt(qbIdx),
         carrierFrom: fromPt(carrierIdx),
         carrierTo: [G.X(to), catchY],
@@ -176,6 +178,70 @@ function animateBall(from, to, ms, yOffNorm, meta) {
             to: [G.X(to) - (G.X(to) - d.pos[0]) * 0.12 + (Math.random() - 0.5) * 10,
                  catchY + (j - 1) * 11],
             delay: j * 0.1, bulge: (Math.random() - 0.5) * G.ht * 0.1,
+          })),
+      };
+    } else if (meta && meta.kind === "kick" && FIELD.formation) {
+      // Boot phase: the kicker's helmet punts/kicks the ball, the return man
+      // drifts to the landing spot, and for INTs it's a pass to the pick man.
+      const G = animGeom();
+      const kickForm = meta.side === "off" ? FIELD.formation.off : FIELD.formation.def;
+      const retForm = meta.side === "off" ? FIELD.formation.def : FIELD.formation.off;
+      const ptOf = (a, i) => {
+        const p = a[i];
+        // Same formula as drawSquad: depth sign is carried by the formation data.
+        let x = G.losX + G.dirOff * p[1] * 10;
+        x = Math.max(6, Math.min(G.w - 6, x));
+        return [x, G.ht / 2 + p[0] * G.ht * 0.44];
+      };
+      const catchY = G.ht / 2 + (Math.random() - 0.5) * G.ht * 0.08;
+      const land = [G.X(to), catchY];
+      const kickerIdx = meta.pick ? 9 : (meta.side === "off" ? 10 : 5);
+      const kickerFrom = ptOf(kickForm, kickerIdx);
+      let retIdx = 0;
+      for (let i = 1; i < retForm.length; i++) {
+        if (Math.abs(retForm[i][1]) > Math.abs(retForm[retIdx][1])) retIdx = i;
+      }
+      const retFrom = ptOf(retForm, retIdx);
+      ballAnim.anim = {
+        kind: "kick", throwT: 0, carrierIn: meta.side,
+        carrierIdx: kickerIdx, carrierFrom: kickerFrom, carrierTo: land,
+        arc: true, arcHt: meta.pick ? 0.1 : 0.22, bulge: 0,
+        drift: { side: meta.side === "off" ? "def" : "off", idx: retIdx, from: retFrom, to: land },
+        pursuers: [],
+      };
+    } else if (meta && meta.kind === "return" && FIELD.formation) {
+      // Kick/INT/fumble returns: the returner catches the ball where it lands
+      // and carries it upfield while the cover team chases.
+      const G = animGeom();
+      const carrierIn = meta.side === "def" ? "def" : "off";
+      const form = carrierIn === "off" ? FIELD.formation.off : FIELD.formation.def;
+      const chase = carrierIn === "off" ? FIELD.formation.def : FIELD.formation.off;
+      const ptOf = (p) => {
+        // Same formula as drawSquad: depth sign is carried by the formation data.
+        let x = G.losX + G.dirOff * p[1] * 10;
+        x = Math.max(6, Math.min(G.w - 6, x));
+        return [x, G.ht / 2 + p[0] * G.ht * 0.44];
+      };
+      const catchY = G.ht / 2 + (Math.random() - 0.5) * G.ht * 0.08;
+      let carrierIdx = 0;
+      for (let i = 1; i < form.length; i++) {
+        if (Math.abs(form[i][1]) > Math.abs(form[carrierIdx][1])) carrierIdx = i;
+      }
+      ballAnim.anim = {
+        kind: "return", throwT: 0, carrierIn,
+        carrierIdx, carrierFrom: [G.X(from), catchY],
+        carrierTo: [G.X(to), catchY],
+        bulge: (Math.random() - 0.5) * G.ht * 0.14,
+        pursuers: chase
+          .map((p, i) => ({ i, pos: ptOf(p) }))
+          .sort((a, b) => Math.hypot(a.pos[0] - G.X(to), a.pos[1] - catchY) -
+                          Math.hypot(b.pos[0] - G.X(to), b.pos[1] - catchY))
+          .slice(0, 4)
+          .map((d, j) => ({
+            i: d.i, from: d.pos,
+            to: [G.X(to) - (G.X(to) - d.pos[0]) * 0.1 + (Math.random() - 0.5) * 12,
+                 catchY + (j - 1.5) * 12],
+            delay: j * 0.08, bulge: (Math.random() - 0.5) * G.ht * 0.1,
           })),
       };
     }
@@ -460,10 +526,17 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
     if (ballAnim.active && ballAnim.anim) {
       const A = ballAnim.anim;
       const t = Math.min(1, (performance.now() - ballAnim.start) / ballAnim.dur);
-      overOff[A.carrierIdx] = curvePos(A.carrierFrom, A.carrierTo, t, A.bulge);
+      const tC = 1 - Math.pow(1 - t, 3); // ease-out on the carrier
+      const carrierOver = A.carrierIn === "def" ? overDef : overOff;
+      if (!A.arc) carrierOver[A.carrierIdx] = curvePos(A.carrierFrom, A.carrierTo, tC, A.bulge);
       for (const P of A.pursuers) {
         const tt = Math.max(0, Math.min(1, (t - P.delay) / (1 - P.delay)));
-        overDef[P.i] = curvePos(P.from, P.to, tt, P.bulge);
+        const over = P.i !== undefined ? (A.carrierIn === "def" ? overOff : overDef) : null;
+        if (over) over[P.i] = curvePos(P.from, P.to, tt, P.bulge);
+      }
+      if (A.drift) {
+        const over = A.drift.side === "def" ? overDef : overOff;
+        over[A.drift.idx] = curvePos(A.drift.from, A.drift.to, tC, 0);
       }
     }
     const drawSquad = (players, team, facing, overrides) => {
@@ -485,9 +558,14 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
     const t = Math.min(1, (performance.now() - ballAnim.start) / ballAnim.dur);
     const e = 1 - Math.pow(1 - t, 3);
     if (ballAnim.anim) {
-      // Live play: the ball rides with the carrier, or arcs QB → receiver.
+      // Live play: the ball rides with the carrier, arcs QB → receiver, or
+      // booms downfield off the kicker's foot.
       const A = ballAnim.anim;
-      if (A.kind === "pass" && t < A.throwT) {
+      if (A.kind === "kick") {
+        bx = A.carrierFrom[0] + (A.carrierTo[0] - A.carrierFrom[0]) * e;
+        by = A.carrierFrom[1] + (A.carrierTo[1] - A.carrierFrom[1]) * e
+           - Math.sin(t * Math.PI) * ht * (A.arcHt || 0.22);
+      } else if (A.kind === "pass" && t < A.throwT) {
         const ct = t / A.throwT;
         const throwTo = curvePos(A.carrierFrom, A.carrierTo, A.throwT, A.bulge);
         bx = A.qbFrom[0] + (throwTo[0] - A.qbFrom[0]) * ct;

@@ -205,7 +205,7 @@ class Game {
     const dist = this.kickDistance(kickType === "squib" ? Math.max(2, k) : k, 65);
     const spot = 65 - dist; // receiving-relative spot (negative = deep in the end zone)
     await this._say("The kick travels " + dist + " yards (" + rollText(krolls) + ").", "dice");
-    await this.pres.moveBall(this.absOf(receiving, 65), this.absOf(receiving, Math.max(-9, spot)), 900);
+    await this.pres.moveBall(this.absOf(receiving, 65), this.absOf(receiving, Math.max(-9, spot)), 900, undefined, { kind: "kick", side: "def" });
     if (spot < 0) {
       await this._say("The kick is caught " + Math.abs(spot) + " yards deep in the end zone.");
     } else {
@@ -246,7 +246,7 @@ class Game {
         return;
       }
       const tdX = this.absOf(receiving, 100) + (receiving === this.leftTeam ? 5 : -5);
-      await this.pres.moveBall(this.absOf(receiving, spot), end >= 100 ? tdX : this.absOf(receiving, end), 900);
+      await this.pres.moveBall(this.absOf(receiving, spot), end >= 100 ? tdX : this.absOf(receiving, end), 900, undefined, { kind: "return", side: "off" });
       await this._say(receiving.name + " return: " + gain + " yards (" + rollText(rolls) +
                       ") — to their own " + Math.min(99, end) + ".");
       receiving.stats.stYards += gain;
@@ -511,6 +511,13 @@ class Game {
           await this._say("INTERCEPTION! Pass traveled " + thrown + " yards; return " + ret +
                           " yards (" + rollText(rtr) + ").", "turnover");
           const spot = Math.max(1, Math.min(99, 100 - (this.yard + thrown) + ret));
+          // Ball arcs from the QB to the defender who picks it off.
+          const pickSpot = Math.max(1, Math.min(99, this.yard + thrown));
+          await this.pres.moveBall(this.absOf(off, this.yard), this.absOf(off, pickSpot), 700,
+                                   undefined, { kind: "kick", side: "off", pick: true });
+          // Then the defender rumbles the other way with it.
+          await this.pres.moveBall(this.absOf(off, pickSpot), this.absOf(deff, spot), 900,
+                                   undefined, { kind: "return", side: "def", start: "catch" });
           await this.turnover(off, deff, spot);
         } else {
           const [loss] = roll(1, 6, true);
@@ -765,7 +772,11 @@ class Game {
       if (b === 6) {
         const [run] = roll(1);
         await this._say(deff.name + " recover and advance " + run + " yards.", "turnover");
-        await this.turnover(off, deff, Math.min(99, 100 - this.yard + run));
+        // The nearest defender scoops it up and rumbles the other way.
+        const newSpot = Math.min(99, 100 - this.yard + run);
+        await this.pres.moveBall(this.absOf(off, this.yard), this.absOf(deff, newSpot), 800,
+                                 undefined, { kind: "return", side: "def", scoop: true });
+        await this.turnover(off, deff, newSpot);
       } else {
         await this.turnover(off, deff, 100 - this.yard);
       }
@@ -904,7 +915,7 @@ class Game {
     await this._say("PUNT: " + off.name + " punt " + dist + " yards (" + rollText(rs) + ").", "event");
     const landing = Math.min(100, this.yard + dist);
     const deep = this.yard + dist - 100;
-    await this.pres.moveBall(this.absOf(off, this.yard), this.absOf(off, landing + Math.max(0, deep)), 800);
+    await this.pres.moveBall(this.absOf(off, this.yard), this.absOf(off, landing + Math.max(0, deep)), 800, undefined, { kind: "kick", side: "off" });
     if (deep > 0) {
       await this._say("The punt is caught " + deep + " yards deep in the end zone.");
       let choice;
@@ -935,7 +946,7 @@ class Game {
         return;
       }
       const tdX = this.absOf(deff, 100) + (deff === this.leftTeam ? 5 : -5);
-      await this.pres.moveBall(this.absOf(deff, -deep), end >= 100 ? tdX : this.absOf(deff, end), 800);
+      await this.pres.moveBall(this.absOf(deff, -deep), end >= 100 ? tdX : this.absOf(deff, end), 800, undefined, { kind: "return", side: "def" });
       if (end >= 100) {
         this.lastTDScorer = "st";
         await this.touchdown(deff, off);
@@ -962,7 +973,7 @@ class Game {
       const [yards, rrs] = roll(3, 6, true);
       const final = receivingYard + yards;
       deff.stats.stYards += yards;
-      await this.pres.moveBall(this.absOf(deff, receivingYard), this.absOf(deff, Math.min(99, final)), 800);
+      await this.pres.moveBall(this.absOf(deff, receivingYard), this.absOf(deff, Math.min(99, final)), 800, undefined, { kind: "return", side: "def" });
       await this._say(deff.name + " return the punt " + yards + " yards (" + rollText(rrs) +
                       "), to their own " + Math.min(99, final) + ".");
       await this.setDrive(deff, off, Math.min(99, final));
