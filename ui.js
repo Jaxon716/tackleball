@@ -121,11 +121,11 @@ const ballAnim = { active: false, from: 0, to: 0, start: 0, dur: 0, yOff: 0, ani
 
 function animateBall(from, to, ms, yOffNorm, meta) {
   return new Promise(res => {
-    const dur = ms || Math.min(1800, 350 + Math.abs(to - from) * 16);
+    const dur = ms || Math.min(2400, 800 + Math.abs(to - from) * 40);
     ballAnim.active = true;
     ballAnim.from = from; ballAnim.to = to;
     ballAnim.yOff = yOffNorm || 0;
-    ballAnim.start = performance.now(); ballAnim.dur = dur;
+    ballAnim.start = Date.now(); ballAnim.dur = dur;
     // Live-play carrier animation (QB throw, WR/RB run, defender pursuit),
     // extended to kick/interception/fumble returns: the returner carries the
     // ball on their side of the ball while the cover team converges on them.
@@ -395,6 +395,62 @@ function drawCenterLogo(ctx, cx, cy, ht) {
   ctx.restore();
 }
 
+/* ================= Sound (generated in-browser — no audio files) ================= */
+let soundOn = true;
+try { soundOn = localStorage.getItem("tb_sound") !== "off"; } catch (e) {}
+let audioCtx = null;
+function ensureAudio() {
+  try {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  } catch (e) {}
+}
+function tone(freq, dur, type, vol, when) {
+  if (!audioCtx) return;
+  const t0 = (when || 0) + audioCtx.currentTime;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type || "sine"; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol || 0.08, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(t0); o.stop(t0 + dur + 0.05);
+}
+function noiseBurst(dur, vol, from, to) {
+  if (!audioCtx) return;
+  const len = Math.floor(audioCtx.sampleRate * dur);
+  const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const f = audioCtx.createBiquadFilter();
+  f.type = "bandpass";
+  const t0 = audioCtx.currentTime;
+  f.frequency.setValueAtTime(from, t0);
+  f.frequency.linearRampToValueAtTime(to, t0 + dur);
+  f.Q.value = 1.2;
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(f).connect(g).connect(audioCtx.destination);
+  src.start();
+}
+function sfx(name) {
+  if (!soundOn) return;
+  ensureAudio();
+  if (!audioCtx) return;
+  try {
+    if (name === "whistle") noiseBurst(0.3, 0.05, 2200, 2600);
+    else if (name === "tick") tone(1900, 0.04, "square", 0.04);
+    else if (name === "roar") noiseBurst(1.5, 0.1, 300, 900);
+    else if (name === "ooh") { tone(330, 0.4, "sine", 0.08); tone(262, 0.5, "sine", 0.06, 0.15); }
+    else if (name === "chime") { tone(523, 0.12, "sine", 0.07); tone(659, 0.12, "sine", 0.07, 0.12); tone(784, 0.2, "sine", 0.07, 0.24); }
+  } catch (e) {}
+}
+
 function drawField() {
   const c = $("#field");
   const wrap = $("#fieldwrap");
@@ -525,7 +581,7 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
     const overOff = {}, overDef = {};
     if (ballAnim.active && ballAnim.anim) {
       const A = ballAnim.anim;
-      const t = Math.min(1, (performance.now() - ballAnim.start) / ballAnim.dur);
+      const t = Math.min(1, (Date.now() - ballAnim.start) / ballAnim.dur);
       const tC = 1 - Math.pow(1 - t, 3); // ease-out on the carrier
       const carrierOver = A.carrierIn === "def" ? overDef : overOff;
       if (!A.arc) carrierOver[A.carrierIdx] = curvePos(A.carrierFrom, A.carrierTo, tC, A.bulge);
@@ -555,7 +611,7 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
   // Ball (animated)
   let bx = null, by = null;
   if (ballAnim.active) {
-    const t = Math.min(1, (performance.now() - ballAnim.start) / ballAnim.dur);
+    const t = Math.min(1, (Date.now() - ballAnim.start) / ballAnim.dur);
     const e = 1 - Math.pow(1 - t, 3);
     if (ballAnim.anim) {
       // Live play: the ball rides with the carrier, arcs QB → receiver, or
@@ -610,6 +666,7 @@ let pendingAsk = null;
 let quitRequested = false;
 
 function addFeed(text, cls) {
+  if (cls === "dice") sfx("tick");
   const feed = $("#feed");
   const line = h("div", "line" + (cls ? " " + cls : ""), text);
   feed.appendChild(line);
@@ -696,6 +753,9 @@ function askUI(prompt, options) {
 }
 
 function showBanner(text, cls, ms) {
+  if (/NO GOOD!|FUMBLE!|INTERCEPTED!|SAFETY!/.test(text)) sfx("ooh");
+  else if (/TOUCHDOWN!|GOOD!|COVERED!/.test(text)) sfx("roar");
+  else if (/AUTOMATIC FIRST DOWN/.test(text)) sfx("chime");
   const b = $("#banner");
   b.innerHTML = "<span>" + text + "</span>";
   b.className = "show " + (cls || "");
@@ -803,7 +863,7 @@ const pres = {
   game: null,
   async say(text, cls) { addFeed(text, cls); await delay(L()); },
   async banner(text, cls, ms) { await showBanner(text, cls, ms); },
-    async moveBall(from, to, ms, yOffNorm) { await animateBall(from, to, ms, yOffNorm); },
+  async moveBall(from, to, ms, yOffNorm, meta) { await animateBall(from, to, ms, yOffNorm, meta); },
   setEndZones(leftTeam, rightTeam) { FIELD.left = leftTeam; FIELD.right = rightTeam; },
   setPossession(team) { FIELD.off = team; },
   setFormation(offType, defType) {
@@ -812,6 +872,7 @@ const pres = {
       def: FORMATIONS.def[defType] || FORMATIONS.def.run,
     };
     FIELD.offForm = offType;
+    sfx("whistle");
   },
   setField(los, firstDown, ball) {
     if (los != null) FIELD.los = los;
@@ -1473,6 +1534,13 @@ $("#speedBtn").onclick = () => {
   SPEED.fast = !SPEED.fast;
   $("#speedBtn").textContent = "Speed: " + (SPEED.fast ? "Fast" : "Normal");
 };
+$("#soundBtn").onclick = () => {
+  soundOn = !soundOn;
+  try { localStorage.setItem("tb_sound", soundOn ? "on" : "off"); } catch (e) {}
+  $("#soundBtn").textContent = "Sound: " + (soundOn ? "On" : "Off");
+  if (soundOn) { ensureAudio(); sfx("tick"); }
+};
+$("#soundBtn").textContent = "Sound: " + (soundOn ? "On" : "Off");
 
 $("#quitBtn").onclick = () => {
   if (pendingAsk) {
