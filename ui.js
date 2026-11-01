@@ -149,36 +149,61 @@ function animateBall(from, to, ms, yOffNorm, meta) {
           if (Math.abs(form[i][0]) > Math.abs(form[carrierIdx][0])) carrierIdx = i;
         }
       }
-      const fromPt = i => {
-        const p = form[i];
+      const fromPt = (arr, i) => {
+        const p = arr[i];
         let x = G.losX + G.dirOff * p[1] * 10;
         x = Math.max(6, Math.min(G.w - 6, x));
         return [x, G.ht / 2 + p[0] * G.ht * 0.44];
       };
       const catchY = G.ht / 2 + (Math.random() - 0.5) * G.ht * 0.08;
+      const ballEnd = [G.X(to), catchY];
+      const qbFrom = fromPt(form, qbIdx);
+      const carrierFrom = fromPt(form, carrierIdx);
+      const snapT = 0.12;
+      const throwT = meta.kind === "pass" ? 0.45 : 0.24;
+      // Whole-formation organic movement: every helmet gets its own curved
+      // path each play — receivers streak downfield, the QB drops back,
+      // linemen jostle, and the entire defense flows toward the ball.
+      const offMoves = [], defMoves = [];
+      form.forEach((p, i) => {
+        if (i === carrierIdx) return;
+        const from = fromPt(form, i);
+        let to;
+        if (i === qbIdx) {
+          // QB drops back a step on passes, stays put on runs
+          const drop = meta.kind === "pass" ? 10 : 3;
+          to = [from[0], from[1] - G.dirOff * drop];
+        } else if (Math.abs(p[0]) > 0.6) {
+          // Receivers streak downfield with a lateral cut
+          to = [from[0] + (Math.random() - 0.5) * G.ht * 0.3,
+                from[1] + G.dirOff * (G.w * 0.05 + Math.random() * G.w * 0.1)];
+        } else {
+          // Linemen and backs jostle around their spots
+          to = [from[0] + (Math.random() - 0.5) * 14,
+                from[1] + G.dirOff * Math.random() * 8];
+        }
+        offMoves.push({ i, from, to, delay: Math.random() * 0.1,
+                        bulge: (Math.random() - 0.5) * G.ht * 0.12 });
+      });
+      FIELD.formation.def.forEach((p, i) => {
+        const from = fromPt(FIELD.formation.def, i);
+        // Every defender flows toward where the ball ends up — the nearest
+        // three go all the way in for the tackle, the rest shade toward it.
+        const dist = Math.hypot(ballEnd[0] - from[0], ballEnd[1] - from[1]);
+        const k = dist < G.w * 0.35 ? 0.85 + Math.random() * 0.15 : 0.25 + Math.random() * 0.5;
+        const to = [from[0] + (ballEnd[0] - from[0]) * k,
+                    from[1] + (ballEnd[1] - from[1]) * k];
+        defMoves.push({ i, from, to, delay: Math.random() * 0.15,
+                        bulge: (Math.random() - 0.5) * G.ht * 0.12 });
+      });
       ballAnim.anim = {
-        kind: meta.kind, throwT: meta.kind === "pass" ? 0.3 : 0,
+        kind: meta.kind, snapT, throwT,
         carrierIn: "off", qbIdx, carrierIdx,
-        qbFrom: fromPt(qbIdx),
-        carrierFrom: fromPt(carrierIdx),
-        carrierTo: [G.X(to), catchY],
+        losPt: [G.X(from), G.ht / 2],
+        qbFrom, carrierFrom,
+        carrierTo: ballEnd,
         bulge: (Math.random() - 0.5) * G.ht * 0.16,
-        // Three nearest defenders converge on the catch/tackle spot.
-        pursuers: FIELD.formation.def
-          .map((p, i) => {
-            let x = G.losX - G.dirOff * p[1] * 10;
-            x = Math.max(6, Math.min(G.w - 6, x));
-            return { i, pos: [x, G.ht / 2 + p[0] * G.ht * 0.44] };
-          })
-          .sort((a, b) => Math.hypot(a.pos[0] - G.X(to), a.pos[1] - catchY) -
-                          Math.hypot(b.pos[0] - G.X(to), b.pos[1] - catchY))
-          .slice(0, 3)
-          .map((d, j) => ({
-            i: d.i, from: d.pos,
-            to: [G.X(to) - (G.X(to) - d.pos[0]) * 0.12 + (Math.random() - 0.5) * 10,
-                 catchY + (j - 1) * 11],
-            delay: j * 0.1, bulge: (Math.random() - 0.5) * G.ht * 0.1,
-          })),
+        offMoves, defMoves, pursuers: [],
       };
     } else if (meta && meta.kind === "kick" && FIELD.formation) {
       // Boot phase: the kicker's helmet punts/kicks the ball, the return man
@@ -583,8 +608,20 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
       const A = ballAnim.anim;
       const t = Math.min(1, (Date.now() - ballAnim.start) / ballAnim.dur);
       const tC = 1 - Math.pow(1 - t, 3); // ease-out on the carrier
+      // Whole-squad organic movement: every helmet walks its own curved
+      // path (routes, drops, jostles, pursuit flow) once the ball is snapped.
+      const applyMoves = (moves, over) => {
+        for (const M of moves || []) {
+          const raw = Math.max(0, Math.min(1, (t - M.delay) / (1 - M.delay)));
+          over[M.i] = curvePos(M.from, M.to, 1 - Math.pow(1 - raw, 3), M.bulge);
+        }
+      };
+      applyMoves(A.offMoves, overOff);
+      applyMoves(A.defMoves, overDef);
       const carrierOver = A.carrierIn === "def" ? overDef : overOff;
-      if (!A.arc) carrierOver[A.carrierIdx] = curvePos(A.carrierFrom, A.carrierTo, tC, A.bulge);
+      // The carrier waits for the snap, then carries the ball downfield.
+      const tRun = A.snapT ? Math.max(0, (t - A.snapT) / (1 - A.snapT)) : tC;
+      if (!A.arc) carrierOver[A.carrierIdx] = curvePos(A.carrierFrom, A.carrierTo, 1 - Math.pow(1 - tRun, 3), A.bulge);
       for (const P of A.pursuers) {
         const tt = Math.max(0, Math.min(1, (t - P.delay) / (1 - P.delay)));
         const over = P.i !== undefined ? (A.carrierIn === "def" ? overOff : overDef) : null;
@@ -621,11 +658,28 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
         bx = A.carrierFrom[0] + (A.carrierTo[0] - A.carrierFrom[0]) * e;
         by = A.carrierFrom[1] + (A.carrierTo[1] - A.carrierFrom[1]) * e
            - Math.sin(t * Math.PI) * ht * (A.arcHt || 0.22);
-      } else if (A.kind === "pass" && t < A.throwT) {
-        const ct = t / A.throwT;
-        const throwTo = curvePos(A.carrierFrom, A.carrierTo, A.throwT, A.bulge);
-        bx = A.qbFrom[0] + (throwTo[0] - A.qbFrom[0]) * ct;
-        by = A.qbFrom[1] + (throwTo[1] - A.qbFrom[1]) * ct - Math.sin(ct * Math.PI) * ht * 0.12;
+      } else if (A.kind === "pass" || A.kind === "run") {
+        // Snap → throw/handoff → carry: the ball first pops to the QB,
+        // then flies (pass) or is handed off (run), then rides the carrier.
+        if (t < A.snapT) {
+          const st = t / A.snapT;
+          bx = A.losPt[0] + (A.qbFrom[0] - A.losPt[0]) * st;
+          by = A.losPt[1] + (A.qbFrom[1] - A.losPt[1]) * st;
+        } else if (A.kind === "pass" && t < A.throwT) {
+          const ct = (t - A.snapT) / (A.throwT - A.snapT);
+          const throwTo = curvePos(A.carrierFrom, A.carrierTo, A.throwT, A.bulge);
+          bx = A.qbFrom[0] + (throwTo[0] - A.qbFrom[0]) * ct;
+          by = A.qbFrom[1] + (throwTo[1] - A.qbFrom[1]) * ct - Math.sin(ct * Math.PI) * ht * 0.12;
+        } else if (t < A.throwT) {
+          // Handoff: ball travels from the QB into the runner's grasp.
+          const ht2 = (t - A.snapT) / (A.throwT - A.snapT);
+          const cp = curvePos(A.carrierFrom, A.carrierTo, t, A.bulge);
+          bx = A.qbFrom[0] + (cp[0] - A.qbFrom[0]) * ht2;
+          by = A.qbFrom[1] + (cp[1] - A.qbFrom[1]) * ht2;
+        } else {
+          const cp = curvePos(A.carrierFrom, A.carrierTo, t, A.bulge);
+          bx = cp[0]; by = cp[1];
+        }
       } else {
         const cp = curvePos(A.carrierFrom, A.carrierTo, t, A.bulge);
         bx = cp[0]; by = cp[1];
