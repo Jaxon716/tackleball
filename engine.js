@@ -111,6 +111,10 @@ class Game {
 
   downDistance(offense) {
     if (!offense) offense = this.offense;
+    if (this.down === 0) {
+      return (this.lineToGain >= 100 ? "Two-point try" : "Extra point") +
+             " at " + this.fieldSpot();
+    }
     const yardsToGain = Math.max(0, this.lineToGain - this.yard);
     const distance = this.lineToGain >= 100 ? "Goal" : String(yardsToGain);
     const names = { 1: "1st", 2: "2nd", 3: "3rd", 4: "4th" };
@@ -340,13 +344,25 @@ class Game {
   aiChoosePlay(off, deff) {
     if (this.down === 4) {
       const fgDist = 117 - this.yard;
-      if (fgDist <= 55 && this.yard >= 55 && Math.random() < 0.70) return "Field goal";
-      if (this.yard < 58 && this.toGo > 2) return "Punt";
-      if (this.toGo >= 5 && this.yard < 65) return "Punt";
+      const diff = this.score[off.name] - this.score[deff.name];
+      const hopeless = this.q >= 4 && diff <= -9;           // needs more than kicks
+      const desperate = this.q >= 4 && diff < 0;            // trailing in the 4th
+      // Field goal range: kick the near-certain ones, skip the long shots
+      // unless the game situation demands it.
+      if (fgDist <= 45 && !hopeless) return "Field goal";
+      if (fgDist <= 52 && !hopeless && Math.random() < 0.8) return "Field goal";
+      // Fourth-and-short at or past midfield: take the points on the board.
+      if (this.toGo <= 2 && this.yard >= 45) return Math.random() < 0.7 ? "Run" : "Pass";
+      // Desperate and short: keep the drive alive.
+      if (desperate && this.toGo <= 4) return "Pass";
+      // Inside the opponent's 40 a punt is a wasted down.
+      if (this.yard >= 60) return Math.random() < 0.5 ? "Pass" : "Run";
+      return "Punt";
     }
     if (this.yard >= 82 && this.down <= 3 && Math.random() < 0.16) return "Special pass";
-    if (this.toGo <= 2) return pickA(["Run", "Special run", "Run", "Pass"]);
+    // 3rd & long: pass almost always. 3rd & short: keep the chains moving.
     if (this.down >= 3 && this.toGo > 7) return pickA(["Pass", "Special pass", "Pass"]);
+    if (this.down >= 3 && this.toGo <= 2) return pickA(["Run", "Run", "Pass"]);
     if (off.b("QB") + off.b("WR") >= off.b("RB") + off.b("QB"))
       return pickA(["Pass", "Pass", "Run", "Special pass"]);
     return pickA(["Run", "Run", "Pass", "Special run"]);
@@ -952,12 +968,24 @@ class Game {
   }
 
   async fieldGoal(off, deff, pat = false) {
+    if (pat) {
+      // Spot the extra point at the 15 — the snap comes from the 8.
+      this.yard = 15;
+      this.lineToGain = 15;
+      this.toGo = 0;
+      this.down = 0;
+    }
+    const snap = Math.max(1, this.yard - 7);            // the holder's spot, 7 yards back
     const distance = pat ? 27 : (117 - this.yard);
     const threshold = distance <= 29 ? 1 : distance <= 39 ? 5 : distance <= 49 ? 9 :
                       distance <= 59 ? 13 : distance <= 69 ? 16 : 19;
     this.totalPlays++; this.roundInQ++;
     this.pres.updateBoard();
     this.pres.setFormation("fieldgoal", "fgrush");
+    // Line up for the kick: LOS at the spot (no stray first-down marker),
+    // ball on the holder's hands 7 yards behind the line.
+    this.pres.setField(this.absOf(off, this.yard), this.absOf(off, this.yard));
+    await this.pres.moveBall(this.absOf(off, snap), this.absOf(off, snap), 1);
     if (off === this.user) {
       await this.pres.ask(pat ? "You are lining up for the extra point. Press KICK:" :
         "You are lined up for a " + distance + "-yard field goal. Press KICK:", [
@@ -966,7 +994,7 @@ class Game {
     const d20 = 1 + Math.floor(Math.random() * 20);
     const good = d20 > threshold;
     const dir = off === this.leftTeam ? 1 : -1;
-    const start = this.absOf(off, this.yard);
+    const start = this.absOf(off, snap);
     const posts = this.absOf(off, 100) + dir * 10; // the uprights plane
     await this._say("FIELD GOAL attempt: " + distance + " yards — the kick is up!", "event");
     // Good kicks split the uprights; misses sail wide of them.
@@ -1017,11 +1045,16 @@ class Game {
         { label: "Kick PAT", value: "Kick PAT", group: "SPECIAL TEAMS" },
         { label: "Go for two", value: "Go for two", group: "OFFENSE" }]);
     } else {
-      choice = Math.random() < 0.88 ? "Kick PAT" : "Go for two";
+      // Chart-driven two-point call: chase the right margin late, kick otherwise.
+      const margin = this.score[off.name] - this.score[deff.name];
+      choice = (this.q >= 4 && [-5, -2, -1].includes(margin)) || Math.random() < 0.1 ?
+        "Go for two" : "Kick PAT";
     }
     if (choice === "Kick PAT") {
       await this.fieldGoal(off, deff, true);
     } else {
+      // Two-point tries line up at the 15 too, with a goal-line feel.
+      this.yard = 15; this.lineToGain = 100; this.toGo = 0; this.down = 0;
       this.totalPlays++; this.roundInQ++;
       let kind;
       if (off === this.user) {
@@ -1032,6 +1065,9 @@ class Game {
       } else {
         kind = Math.random() < 0.55 ? "run" : "pass";
       }
+      this.pres.setFormation(kind === "run" ? "run" : "pass", "goal");
+      this.pres.setField(this.absOf(off, this.yard), this.absOf(off, this.yard));
+      this.pres.updateBoard();
       const dc = kind === "run" ? 6 + deff.b("LM") + deff.b("LB") : 8 + deff.b("DB") + deff.b("LB");
       const attackBonus = off.b("QB") + (kind === "run" ? off.b("RB") : off.b("WR"));
       const d20 = 1 + Math.floor(Math.random() * 20);
