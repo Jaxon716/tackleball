@@ -1549,7 +1549,90 @@ function rerollLeague() {
   return { riser, faller };
 }
 
-function completeSeason(champion) {
+/* ================= Offseason market (Pen & Paper career rules) ================= */
+
+// A modal that offers choices instead of just OK — used by the draft and
+// free agency. Resolves with the chosen option's value.
+function choose(text, options) {
+  return new Promise(res => {
+    $("#modal-text").textContent = text;
+    const ok = $("#modal-ok");
+    ok.classList.add("hidden");
+    const card = ok.parentNode;
+    for (const o of options) {
+      const b = h("button", "menu-btn modal-choice", o.label);
+      b.style.marginTop = "8px";
+      b.onclick = () => {
+        card.querySelectorAll(".modal-choice").forEach(x => x.remove());
+        ok.classList.remove("hidden");
+        res(o.value);
+      };
+      card.appendChild(b);
+    }
+    $("#modal").classList.remove("hidden");
+  });
+}
+
+// Rookies and free agents roll their rating on 2d6 + 6 (8-18).
+function rookieRoll() {
+  return Math.min(18, 6 + (1 + Math.floor(Math.random() * 6)) + (1 + Math.floor(Math.random() * 6)));
+}
+
+async function offseasonMarket(team, pickNo) {
+  const news = [];
+  // 1. RETIREMENTS — every position on every team can age out.
+  const mine = [], aiHoles = [];
+  let count = 0;
+  for (const n in TEAMS) {
+    for (const k of STAT_NAMES) {
+      if (Math.random() < 0.12) {
+        count++;
+        TEAMS[n][k.toLowerCase()] = 6; // replacement-level until replaced
+        if (n === team) mine.push(k);
+        else aiHoles.push([n, k.toLowerCase()]);
+      }
+    }
+  }
+  news.push("RETIREMENTS: " + (mine.length ? "your " + mine.join(" and ") + " retired" : "nobody on your team retired") +
+            ". " + count + " players retired league-wide.");
+  // 2. TRAINING CAMP — the league-wide development rolls.
+  const rolls = rerollLeague();
+  news.push("TRAINING CAMP: " + rolls.riser.n + " improved the most (OVR +" + rolls.riser.d +
+            "), " + rolls.faller.n + " dropped the most (OVR " + rolls.faller.d + ").");
+  // AI teams draft rookies onto their retired spots.
+  for (const [n, key] of aiHoles) TEAMS[n][key] = rookieRoll();
+  // 3. THE DRAFT — worst records pick first; you choose the position.
+  const posList = ["QB", "RB", "WR", "LM", "LB", "DB"];
+  const pick = await choose("THE DRAFT — you pick #" + pickNo + " of 32." +
+    (mine.length ? "\nYour needs: " + mine.join(", ") + "." : "") +
+    "\nChoose a position to draft:", posList.map(p => ({ label: p, value: p })));
+  const rollVal = rookieRoll();
+  const oldVal = TEAMS[team][pick.toLowerCase()];
+  TEAMS[team][pick.toLowerCase()] = rollVal;
+  news.push("THE DRAFT: with pick #" + pickNo + " you drafted a " + pick +
+            " rated " + rollVal + " (was " + oldVal + ").");
+  // 4. FREE AGENCY — three free agents on the market, sign one or skip.
+  const fas = [];
+  for (let i = 0; i < 3; i++) {
+    fas.push({ pos: posList[Math.floor(Math.random() * posList.length)],
+               rating: Math.min(18, rookieRoll() + 2) });
+  }
+  const opts = fas.map((f, i) => ({ label: "Sign " + f.pos + " (" + f.rating + ")", value: i }));
+  opts.push({ label: "Skip free agency", value: -1 });
+  const sign = await choose("FREE AGENCY — on the market this year:\n" +
+    fas.map(f => f.pos + " rated " + f.rating).join("\n"), opts);
+  if (sign >= 0) {
+    const f = fas[sign];
+    const oldV = TEAMS[team][f.pos.toLowerCase()];
+    TEAMS[team][f.pos.toLowerCase()] = f.rating;
+    news.push("FREE AGENCY: you signed a " + f.pos + " rated " + f.rating + " (was " + oldV + ").");
+  } else {
+    news.push("FREE AGENCY: you stood pat.");
+  }
+  return news.join("\n");
+}
+
+async function completeSeason(champion) {
   const r = cur.records[cur.userTeam];
   const team = cur.userTeam;
   const seasonNo = cur.seasonNumber;
@@ -1559,7 +1642,9 @@ function completeSeason(champion) {
     season: seasonNo, year, team, W: r.W, L: r.L, T: r.T, PF: r.PF, PA: r.PA,
     champion, date: new Date().toISOString().slice(0, 10),
   });
-  const rolls = rerollLeague();
+  // Draft order: worst records pick first (more wins = later pick).
+  const pickNo = 1 + Object.keys(cur.records).filter(n => n !== team &&
+    (cur.records[n].W > r.W || (cur.records[n].W === r.W && cur.records[n].PF < r.PF))).length;
   career.ratings = exportRatings();
   career.injuries[team] = [];
   career.seasonNumber = seasonNo + 1;
@@ -1567,6 +1652,7 @@ function completeSeason(champion) {
   career.current = null;
   cur = null;
   let endMsg = "";
+  let offseasonNews = null;
   if (year >= 5) {
     // Five years in: career complete, summarize it and reset.
     endMsg = "\n\n5-YEAR CAREER COMPLETE" +
@@ -1579,17 +1665,17 @@ function completeSeason(champion) {
     career.year = 1;
   } else {
     career.year = year + 1;
+    // The offseason market: retirements, camp rolls, the draft, free agency.
+    offseasonNews = await offseasonMarket(team, pickNo);
+    career.ratings = exportRatings();
   }
   saveCareer();
   renderTitle();
-  modal("SEASON " + seasonNo + " COMPLETE" +
+  await modal("SEASON " + seasonNo + " COMPLETE" +
         "\n" + team + ": " + r.W + "-" + r.L + "-" + r.T + " (year " + year + " of 5)" +
-        "\nSuper Bowl champion: " + champion +
-        "\n\nOFFSEASON ROLLS — all 32 teams re-rolled their ratings" +
-        "\nBiggest riser: " + rolls.riser.n + " (OVR +" + rolls.riser.d + ")" +
-        "\nBiggest faller: " + rolls.faller.n + " (OVR " + rolls.faller.d + ")" +
-        endMsg)
-    .then(() => showScreen("screen-title"));
+        "\nSuper Bowl champion: " + champion + endMsg);
+  if (offseasonNews) await modal("OFFSEASON — AROUND THE LEAGUE\n\n" + offseasonNews);
+  showScreen("screen-title");
 }
 
 /* ================= Info screens ================= */
