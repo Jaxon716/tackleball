@@ -418,6 +418,7 @@ class Game {
   }
 
   async scrimmagePlay(off, deff, kind, opts = {}) {
+    this.lastPlayKind = kind; // the UI animates the ball carrier from this
     const special = opts.special || null;
     const yardDice = opts.yardDice || null;
     let baseDc = opts.baseDc;
@@ -612,6 +613,7 @@ class Game {
       await this._say("Successful Hurry Up: the play does not count as a round of play.", "good");
     }
     if (this.offense === off && this.roundInQ >= 40) await this._say("Quarter time has expired after this play.");
+    this.lastPlayKind = null;
   }
 
   async specialPlay(off, deff, kind) {
@@ -676,11 +678,11 @@ class Game {
     const from = this.yard;
     this.yard = Math.max(1, Math.min(100, this.yard + yards));
     if (this.yard >= 100) {
-      await this.pres.moveBall(this.absOf(off, from), this.absOf(off, 100) + (off === this.leftTeam ? 5 : -5));
+      await this.pres.moveBall(this.absOf(off, from), this.absOf(off, 100) + (off === this.leftTeam ? 5 : -5), undefined, undefined, { kind: this.lastPlayKind });
       await this.touchdown(off, this.other(off));
       return;
     }
-    await this.pres.moveBall(this.absOf(off, from), this.absOf(off, this.yard));
+    await this.pres.moveBall(this.absOf(off, from), this.absOf(off, this.yard), undefined, undefined, { kind: this.lastPlayKind });
     this.pres.setField(this.absOf(off, this.yard), this.absOf(off, this.lineToGain));
   }
 
@@ -983,9 +985,8 @@ class Game {
     this.pres.updateBoard();
     this.pres.setFormation("fieldgoal", "fgrush");
     // Line up for the kick: LOS at the spot (no stray first-down marker),
-    // ball on the holder's hands 7 yards behind the line.
-    this.pres.setField(this.absOf(off, this.yard), this.absOf(off, this.yard));
-    await this.pres.moveBall(this.absOf(off, snap), this.absOf(off, snap), 1);
+    // ball placed directly on the holder's hands 7 yards behind the line.
+    this.pres.setField(this.absOf(off, this.yard), this.absOf(off, this.yard), this.absOf(off, snap));
     if (off === this.user) {
       await this.pres.ask(pat ? "You are lining up for the extra point. Press KICK:" :
         "You are lined up for a " + distance + "-yard field goal. Press KICK:", [

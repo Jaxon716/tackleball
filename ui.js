@@ -117,17 +117,96 @@ const FORMATIONS = {
     ],
   },
 };
-const ballAnim = { active: false, from: 0, to: 0, start: 0, dur: 0, yOff: 0 };
+const ballAnim = { active: false, from: 0, to: 0, start: 0, dur: 0, yOff: 0, anim: null };
 
-function animateBall(from, to, ms, yOffNorm) {
+function animateBall(from, to, ms, yOffNorm, meta) {
   return new Promise(res => {
     const dur = ms || Math.min(1800, 350 + Math.abs(to - from) * 16);
     ballAnim.active = true;
     ballAnim.from = from; ballAnim.to = to;
     ballAnim.yOff = yOffNorm || 0;
     ballAnim.start = performance.now(); ballAnim.dur = dur;
-    setTimeout(() => { ballAnim.active = false; FIELD.ball = to; res(); }, dur);
+    // Live-play carrier animation (QB throw, WR/RB run, defender pursuit).
+    ballAnim.anim = null;
+    if (meta && (meta.kind === "run" || meta.kind === "pass") && FIELD.formation) {
+      const G = animGeom();
+      const form = FIELD.formation.off;
+      const qbIdx = 9;
+      // Carrier by geometry: the runner is the deepest helmet (excl. QB), the
+      // receiver is the widest — works for both I-form and shotgun looks.
+      let carrierIdx;
+      if (meta.kind === "run") {
+        carrierIdx = 0;
+        for (let i = 0; i < form.length; i++) {
+          if (i === qbIdx) continue;
+          if (form[i][1] < form[carrierIdx][1]) carrierIdx = i;
+        }
+      } else {
+        carrierIdx = 0;
+        for (let i = 1; i < form.length; i++) {
+          if (Math.abs(form[i][0]) > Math.abs(form[carrierIdx][0])) carrierIdx = i;
+        }
+      }
+      const fromPt = i => {
+        const p = form[i];
+        let x = G.losX + G.dirOff * p[1] * 10;
+        x = Math.max(6, Math.min(G.w - 6, x));
+        return [x, G.ht / 2 + p[0] * G.ht * 0.44];
+      };
+      const catchY = G.ht / 2 + (Math.random() - 0.5) * G.ht * 0.08;
+      ballAnim.anim = {
+        kind: meta.kind, throwT: meta.kind === "pass" ? 0.3 : 0,
+        qbIdx, carrierIdx,
+        qbFrom: fromPt(qbIdx),
+        carrierFrom: fromPt(carrierIdx),
+        carrierTo: [G.X(to), catchY],
+        bulge: (Math.random() - 0.5) * G.ht * 0.16,
+        // Three nearest defenders converge on the catch/tackle spot.
+        pursuers: FIELD.formation.def
+          .map((p, i) => {
+            let x = G.losX - G.dirOff * p[1] * 10;
+            x = Math.max(6, Math.min(G.w - 6, x));
+            return { i, pos: [x, G.ht / 2 + p[0] * G.ht * 0.44] };
+          })
+          .sort((a, b) => Math.hypot(a.pos[0] - G.X(to), a.pos[1] - catchY) -
+                          Math.hypot(b.pos[0] - G.X(to), b.pos[1] - catchY))
+          .slice(0, 3)
+          .map((d, j) => ({
+            i: d.i, from: d.pos,
+            to: [G.X(to) - (G.X(to) - d.pos[0]) * 0.12 + (Math.random() - 0.5) * 10,
+                 catchY + (j - 1) * 11],
+            delay: j * 0.1, bulge: (Math.random() - 0.5) * G.ht * 0.1,
+          })),
+      };
+    }
+    setTimeout(() => { ballAnim.active = false; ballAnim.anim = null; FIELD.ball = to; res(); }, dur);
   });
+}
+
+// Canvas geometry matching drawField(), for computing animation positions.
+function animGeom() {
+  const wrap = $("#fieldwrap");
+  const w = (wrap && wrap.clientWidth > 10) ? wrap.clientWidth : 360;
+  const ht = Math.round(w * 0.66);
+  const ez = w * 10 / 120;
+  const dirOff = FIELD.off === FIELD.left ? 1 : -1;
+  return {
+    w, ht, ez,
+    X: y => ez + y * (w - 2 * ez) / 100,
+    losX: ez + FIELD.los * (w - 2 * ez) / 100,
+    dirOff,
+  };
+}
+// Quadratic path with a lateral bulge, for organic player movement.
+function curvePos(a, b, t, bulge) {
+  const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+  const cx = mx - (b[1] - a[1]) * 0.4, cy = my + (b[0] - a[0]) * 0.4;
+  const u = 1 - t;
+  const bul = Math.sin(t * Math.PI) * (bulge || 0);
+  return [
+    u * u * a[0] + 2 * u * t * cx + t * t * b[0],
+    u * u * a[1] + 2 * u * t * cy + t * t * b[1] + bul,
+  ];
 }
 
 function drawHelmet(ctx, x, y, team, facing) {
@@ -375,31 +454,58 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
     const dirOff = off === FIELD.left ? 1 : -1;
     const losX = X(FIELD.los);
     const DEPTH_PX = 10;
-    const drawSquad = (players, team, facing) => {
-      for (const p of players) {
+    // During a live-play animation, the ball carrier and the converging
+    // defenders are drawn off their formation spots along curved paths.
+    const overOff = {}, overDef = {};
+    if (ballAnim.active && ballAnim.anim) {
+      const A = ballAnim.anim;
+      const t = Math.min(1, (performance.now() - ballAnim.start) / ballAnim.dur);
+      overOff[A.carrierIdx] = curvePos(A.carrierFrom, A.carrierTo, t, A.bulge);
+      for (const P of A.pursuers) {
+        const tt = Math.max(0, Math.min(1, (t - P.delay) / (1 - P.delay)));
+        overDef[P.i] = curvePos(P.from, P.to, tt, P.bulge);
+      }
+    }
+    const drawSquad = (players, team, facing, overrides) => {
+      players.forEach((p, i) => {
         let px = losX + dirOff * p[1] * DEPTH_PX;
         px = Math.max(6, Math.min(w - 6, px));
-        const py = ht / 2 + p[0] * ht * 0.44;
+        let py = ht / 2 + p[0] * ht * 0.44;
+        if (overrides && overrides[i]) { px = overrides[i][0]; py = overrides[i][1]; }
         drawHelmet(ctx, px, py, team, facing);
-      }
+      });
     };
-    drawSquad(FIELD.formation.off, off, dirOff);
-    drawSquad(FIELD.formation.def, dfn, -dirOff);
+    drawSquad(FIELD.formation.off, off, dirOff, overOff);
+    drawSquad(FIELD.formation.def, dfn, -dirOff, overDef);
   }
 
   // Ball (animated)
-  let ball = FIELD.ball;
-  let ballY = ht / 2;
+  let bx = null, by = null;
   if (ballAnim.active) {
     const t = Math.min(1, (performance.now() - ballAnim.start) / ballAnim.dur);
     const e = 1 - Math.pow(1 - t, 3);
-    ball = ballAnim.from + (ballAnim.to - ballAnim.from) * e;
-    ballY = ht / 2 + ballAnim.yOff * ht * e;
+    if (ballAnim.anim) {
+      // Live play: the ball rides with the carrier, or arcs QB → receiver.
+      const A = ballAnim.anim;
+      if (A.kind === "pass" && t < A.throwT) {
+        const ct = t / A.throwT;
+        const throwTo = curvePos(A.carrierFrom, A.carrierTo, A.throwT, A.bulge);
+        bx = A.qbFrom[0] + (throwTo[0] - A.qbFrom[0]) * ct;
+        by = A.qbFrom[1] + (throwTo[1] - A.qbFrom[1]) * ct - Math.sin(ct * Math.PI) * ht * 0.12;
+      } else {
+        const cp = curvePos(A.carrierFrom, A.carrierTo, t, A.bulge);
+        bx = cp[0]; by = cp[1];
+      }
+    } else {
+      const b = ballAnim.from + (ballAnim.to - ballAnim.from) * e;
+      bx = X(b);
+      by = ht / 2 + ballAnim.yOff * ht * e;
+    }
   }
-  let bx = X(ball);
+  if (bx == null) { bx = X(FIELD.ball); by = ht / 2; }
   bx = Math.max(8, Math.min(w - 8, bx));
   ctx.save();
-  ctx.translate(bx, ballY);
+  ctx.translate(bx, by);
   ctx.fillStyle = "#8a4b1f";
   ctx.beginPath();
   ctx.ellipse(0, 0, 7.5, 4.2, 0, 0, Math.PI * 2);
@@ -627,11 +733,12 @@ const pres = {
       off: FORMATIONS.off[offType] || FORMATIONS.off.run,
       def: FORMATIONS.def[defType] || FORMATIONS.def.run,
     };
+    FIELD.offForm = offType;
   },
-  setField(los, firstDown) {
+  setField(los, firstDown, ball) {
     if (los != null) FIELD.los = los;
     FIELD.firstDown = (firstDown == null) ? FIELD.los : firstDown;
-    FIELD.ball = FIELD.los;
+    FIELD.ball = (ball != null) ? ball : FIELD.los;
     FIELD.dir = FIELD.firstDown >= FIELD.los ? 1 : -1;
   },
   updateBoard() { renderScorebug(); },
