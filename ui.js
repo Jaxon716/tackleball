@@ -1051,7 +1051,7 @@ let cur = null; // active season state (reference into career.current)
 
 let tsState = null; // { exclude, cb }
 
-function openTeamSelect(title, exclude, cb, backFn) {
+function openTeamSelect(title, exclude, cb, backFn, blind) {
   tsState = { exclude, cb, backFn: backFn || (() => showScreen("screen-title")) };
   $("#ts-title").textContent = title;
   const grid = $("#ts-grid");
@@ -1063,11 +1063,17 @@ function openTeamSelect(title, exclude, cb, backFn) {
     b.className = "team-card";
     b.style.background = t.primary;
     b.style.color = t.text;
-    const r = teamRatings(name);
-    b.innerHTML = '<span class="tc-abbr">' + t.abbr + '</span><span class="tc-name">' + name + '</span>' +
-      '<span class="tc-ratings"><span class="rc-chip">OFF ' + r.off + ' (' + r.offMod + ')</span>' +
-      '<span class="rc-chip">DEF ' + r.def + ' (' + r.defMod + ')</span>' +
-      '<span class="rc-chip ovr" style="background:' + t.alt + ';color:' + t.text + '">OVR ' + r.ovr + ' (' + r.ovrMod + ')</span></span>';
+    if (blind) {
+      // A new career rolls every roster from dice — nothing is pre-built.
+      b.innerHTML = '<span class="tc-abbr">' + t.abbr + '</span><span class="tc-name">' + name + '</span>' +
+        '<span class="tc-ratings"><span class="rc-chip">roster rolls on 3d6 after you pick</span></span>';
+    } else {
+      const r = teamRatings(name);
+      b.innerHTML = '<span class="tc-abbr">' + t.abbr + '</span><span class="tc-name">' + name + '</span>' +
+        '<span class="tc-ratings"><span class="rc-chip">OFF ' + r.off + ' (' + r.offMod + ')</span>' +
+        '<span class="rc-chip">DEF ' + r.def + ' (' + r.defMod + ')</span>' +
+        '<span class="rc-chip ovr" style="background:' + t.alt + ';color:' + t.text + '">OVR ' + r.ovr + ' (' + r.ovrMod + ')</span></span>';
+    }
     b.onclick = () => cb(name);
     grid.appendChild(b);
   }
@@ -1289,28 +1295,47 @@ function roll3d6() {
   return { dice, total: dice.reduce((a, b) => a + b, 0) };
 }
 
-// Team creation at the start of a career: the whole league rolls fresh
-// rosters on 3d6, then you roll yours with one mulligan.
+// Team creation at the start of a career, in the rulebook's order: you pick
+// your team, roll YOUR six positions live (dice shown, one mulligan), then
+// watch the rest of the league roll its rosters division by division before
+// the season begins.
+function rollLine(k, r) {
+  return k + ": [" + r.dice.join(", ") + "] = " + r.total;
+}
+function rosterText(rolls) {
+  return STAT_NAMES.map(k => rollLine(k, rolls[k])).join("\n");
+}
 async function teamCreation(team) {
-  for (const n in TEAMS) {
-    for (const k of STAT_NAMES) TEAMS[n][k.toLowerCase()] = roll3d6().total;
-  }
+  // YOUR ROSTER: roll each position, one at a time.
   const rolls = {};
   for (const k of STAT_NAMES) {
     rolls[k] = roll3d6();
     TEAMS[team][k.toLowerCase()] = rolls[k].total;
+    await modal("YOUR ROSTER — " + team + "\n\nRolling your " + k + "...\n\n" + rollLine(k, rolls[k]));
   }
-  const show = () => STAT_NAMES.map(k =>
-    k + ": [" + rolls[k].dice.join(", ") + "] = " + rolls[k].total).join("\n");
-  await modal("TEAM CREATION — every team in the league just rolled a fresh roster on 3d6.\n\nYOUR ROSTER:\n" + show());
-  const mull = await choose("One mulligan — re-roll a position?",
+  const mull = await choose("One mulligan — re-roll a position?\n\nYOUR ROSTER:\n" + rosterText(rolls),
     STAT_NAMES.map(k => ({ label: "Re-roll " + k, value: k }))
       .concat([{ label: "Keep this roster", value: null }]));
   if (mull) {
     rolls[mull] = roll3d6();
     TEAMS[team][mull.toLowerCase()] = rolls[mull].total;
-    await modal(mull + " re-rolled: [" + rolls[mull].dice.join(", ") + "] = " + rolls[mull].total +
-                "\n\nYOUR ROSTER:\n" + show());
+    await modal("MULLIGAN — " + mull + " re-rolled:\n\n" + rollLine(mull, rolls[mull]) +
+                "\n\nYOUR ROSTER:\n" + rosterText(rolls));
+  }
+  // THE LEAGUE ROLLS: every other team rolls its roster, division by division.
+  for (const div in DIVISIONS) {
+    let msg = div.toUpperCase() + " — ROSTER ROLLS\n";
+    for (const n of DIVISIONS[div]) {
+      if (n === team) { msg += "\n" + n + " — your roster (already rolled)"; continue; }
+      const rr = {};
+      for (const k of STAT_NAMES) {
+        rr[k] = roll3d6();
+        TEAMS[n][k.toLowerCase()] = rr[k].total;
+      }
+      msg += "\n" + n + ": " + STAT_NAMES.map(k => k + " " + rr[k].total).join(", ") +
+             "  (OVR " + teamRatings(n).ovr + ")";
+    }
+    await modal(msg);
   }
   career.ratings = exportRatings();
 }
@@ -1357,6 +1382,8 @@ function renderSeasonHub() {
 
 $("#btn-season").onclick = async () => {
   if (career.current) await modal("You have a saved season in progress.\nStarting a new one deletes it.");
+  // A brand-new career rolls every roster from dice, so the cards stay blind
+  // (no pre-built ratings). Returning seasons keep their rolled rosters.
   openTeamSelect("Choose your franchise", null, async team => {
     career.injuries = career.injuries || {};
     career.stats = career.stats || { seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 };
@@ -1365,9 +1392,9 @@ $("#btn-season").onclick = async () => {
     if (fresh) career.year = 1;
     career.injuries[team] = [];
     career.stats.seasonsStarted++;
-    // Pen & Paper team creation: on a fresh franchise the WHOLE league rolls
-    // fresh ratings (3d6 per position per team), and you roll your own six
-    // positions live with one mulligan.
+    // Pen & Paper team creation, on a fresh franchise only: you pick your
+    // team, roll your six positions live with one mulligan, then the whole
+    // league rolls fresh rosters before the season begins.
     if (fresh) await teamCreation(team);
     career.current = {
       userTeam: team,
@@ -1380,7 +1407,7 @@ $("#btn-season").onclick = async () => {
     saveCareer();
     renderSeasonHub();
     showScreen("screen-season");
-  }, () => showScreen("screen-title"));
+  }, () => showScreen("screen-title"), !career.careerTeam);
 };
 
 $("#btn-continue").onclick = () => {
