@@ -118,6 +118,9 @@ const FORMATIONS = {
   },
 };
 const ballAnim = { active: false, from: 0, to: 0, start: 0, dur: 0, yOff: 0, anim: null };
+// The ball's drawn orientation: it points along its travel direction (passes
+// spiral to the receiver, runners tuck it in the direction they're going).
+let ballAngle = 0, lastBallPt = null;
 
 function animateBall(from, to, ms, yOffNorm, meta) {
   return new Promise(res => {
@@ -155,45 +158,163 @@ function animateBall(from, to, ms, yOffNorm, meta) {
         x = Math.max(6, Math.min(G.w - 6, x));
         return [x, G.ht / 2 + p[0] * G.ht * 0.44];
       };
-      const catchY = G.ht / 2 + (Math.random() - 0.5) * G.ht * 0.08;
+      // The catch spot sits near the receiver's alignment — wide receivers
+      // make catches near the numbers and sideline, not middle-of-the-field.
+      const carrierFrom = fromPt(form, carrierIdx);
+      const catchY = Math.max(G.ht * 0.1, Math.min(G.ht * 0.9,
+        carrierFrom[1] + (Math.random() - 0.5) * G.ht * 0.08));
       const ballEnd = [G.X(to), catchY];
       const qbFrom = fromPt(form, qbIdx);
-      const carrierFrom = fromPt(form, carrierIdx);
       const snapT = 0.12;
       const throwT = meta.kind === "pass" ? 0.45 : 0.24;
-      // Whole-formation organic movement: every helmet gets its own curved
-      // path each play — receivers streak downfield, the QB drops back,
-      // linemen jostle, and the entire defense flows toward the ball.
+      // Route book: every route is a stem downfield, then a break. Slants
+      // angle inside, outs flatten to the sideline, posts climb and cut in,
+      // curls come back to the QB, and streaks hug the sideline.
+      const routeEnds = {}; // offensive index → final point, so corners can shadow
+      const stemPt = (f, d, y) => [f[0] + G.dirOff * d, f[1] + y];
+      const pickRoute = (f) => {
+        const kinds = ["slant", "slant", "out", "post", "go", "go", "curl", "flat"];
+        const kind = kinds[Math.floor(Math.random() * kinds.length)];
+        const outS = f[1] >= G.ht / 2 ? 1 : -1; // toward the receiver's own sideline
+        const inS = -outS;
+        if (kind === "slant") {
+          const stem = stemPt(f, 25 + Math.random() * 20, outS * 6);
+          return { via: stem, viaT: 0.4,
+            to: [stem[0] + G.dirOff * (25 + Math.random() * 40),
+                 stem[1] + inS * (30 + Math.random() * 50)] };
+        } else if (kind === "out") {
+          const stem = stemPt(f, 18 + Math.random() * 15, 0);
+          return { via: stem, viaT: 0.45,
+            to: [stem[0] + G.dirOff * (5 + Math.random() * 15),
+                 Math.max(G.ht * 0.08, Math.min(G.ht * 0.92, f[1] + outS * (35 + Math.random() * 45)))] };
+        } else if (kind === "post") {
+          const stem = stemPt(f, 55 + Math.random() * 35, outS * 10);
+          return { via: stem, viaT: 0.5,
+            to: [stem[0] + G.dirOff * (45 + Math.random() * 50),
+                 stem[1] + inS * (50 + Math.random() * 60)] };
+        } else if (kind === "go") {
+          // Deep streak hugging the sideline
+          return { via: null, to: [f[0] + G.dirOff * (120 + Math.random() * 80),
+                 f[1] + outS * (3 + Math.random() * 10)] };
+        } else if (kind === "curl") {
+          const stem = stemPt(f, 45 + Math.random() * 30, outS * 8);
+          return { via: stem, viaT: 0.5,
+            to: [stem[0] - G.dirOff * (8 + Math.random() * 15),
+                 stem[1] + inS * (8 + Math.random() * 18)] };
+        } else { // flat: burst to the sideline immediately
+          return { via: null,
+            to: [f[0] + G.dirOff * (4 + Math.random() * 10),
+                 Math.max(G.ht * 0.08, Math.min(G.ht * 0.92, f[1] + outS * (55 + Math.random() * 35)))] };
+        }
+      };
+      // Whole-formation organic movement: receivers run real routes with a
+      // stem and a break, the QB drops back, linemen jostle, backs leak out
+      // on check-downs, and the defense plays coverage instead of mobbing.
       const offMoves = [], defMoves = [];
       form.forEach((p, i) => {
         if (i === carrierIdx) return;
         const from = fromPt(form, i);
-        let to;
+        let to, via = null, viaT = 0.45;
         if (i === qbIdx) {
           // QB drops back a step on passes, stays put on runs
           const drop = meta.kind === "pass" ? 10 : 3;
           to = [from[0], from[1] - G.dirOff * drop];
-        } else if (Math.abs(p[0]) > 0.6) {
-          // Receivers streak downfield with a lateral cut
-          to = [from[0] + (Math.random() - 0.5) * G.ht * 0.3,
-                from[1] + G.dirOff * (G.w * 0.05 + Math.random() * G.w * 0.1)];
+        } else if (Math.abs(p[0]) > 0.6 || (meta.kind === "pass" && p[1] <= -3 && Math.random() < 0.5)) {
+          // Wide receivers run real routes; backs leak out on passes.
+          // On runs, receivers fire upfield as downfield blockers.
+          if (meta.kind === "run") {
+            via = [from[0] + G.dirOff * 12, from[1]];
+            viaT = 0.3;
+            to = [from[0] + G.dirOff * (35 + Math.random() * 25),
+                  from[1] + (p[0] >= 0 ? 1 : -1) * (6 + Math.random() * 14)];
+          } else {
+            const R = pickRoute(from);
+            via = R.via; to = R.to; viaT = R.viaT || 0.45;
+          }
+          routeEnds[i] = to;
+        } else if (meta.kind === "run" && p[1] <= -3) {
+          // Lead blocker: flow toward the hole at the line
+          to = [from[0] + G.dirOff * (14 + Math.random() * 10),
+                from[1] + (Math.random() - 0.5) * 20];
         } else {
           // Linemen and backs jostle around their spots
           to = [from[0] + (Math.random() - 0.5) * 14,
                 from[1] + G.dirOff * Math.random() * 8];
         }
-        offMoves.push({ i, from, to, delay: Math.random() * 0.1,
+        offMoves.push({ i, from, to, via, viaT, delay: Math.random() * 0.1,
                         bulge: (Math.random() - 0.5) * G.ht * 0.12 });
       });
+      // The ball carrier runs his own route: on passes a stem then the break
+      // to where the ball is thrown; on runs a jump cut through the hole.
+      let carrierVia = null, carrierViaT = 0;
+      if (meta.kind === "pass") {
+        const depth = (ballEnd[0] - carrierFrom[0]) * G.dirOff;
+        const stemD = Math.min(Math.max(depth * 0.45, 20), 55);
+        carrierVia = [carrierFrom[0] + G.dirOff * stemD,
+          carrierFrom[1] + (ballEnd[1] - carrierFrom[1]) * 0.15 + (Math.random() - 0.5) * 10];
+        carrierViaT = 0.35 + Math.random() * 0.15;
+      } else {
+        carrierVia = [(carrierFrom[0] + ballEnd[0]) / 2 + (Math.random() - 0.5) * 16,
+          (carrierFrom[1] + ballEnd[1]) / 2 + (Math.random() - 0.5) * G.ht * 0.14];
+        carrierViaT = 0.45 + Math.random() * 0.2;
+      }
+      routeEnds[carrierIdx] = ballEnd;
       FIELD.formation.def.forEach((p, i) => {
         const from = fromPt(FIELD.formation.def, i);
-        // Every defender flows toward where the ball ends up — the nearest
-        // three go all the way in for the tackle, the rest shade toward it.
-        const dist = Math.hypot(ballEnd[0] - from[0], ballEnd[1] - from[1]);
-        const k = dist < G.w * 0.35 ? 0.85 + Math.random() * 0.15 : 0.25 + Math.random() * 0.5;
-        const to = [from[0] + (ballEnd[0] - from[0]) * k,
-                    from[1] + (ballEnd[1] - from[1]) * k];
-        defMoves.push({ i, from, to, delay: Math.random() * 0.15,
+        const lateral = Math.abs(p[0]);
+        const depth = p[1];
+        let to, via = null, viaT = 0.45;
+        if (meta.kind === "pass" && lateral > 0.5) {
+          // Corner / nickel: cover the nearest receiver — trail him a step
+          // behind and outside, so his slant or post gets shadowed.
+          let best = null, bestD = 1e9;
+          for (const jStr of Object.keys(routeEnds)) {
+            const j = +jStr;
+            const rFrom = fromPt(form, j);
+            const d = Math.hypot(rFrom[0] - from[0], rFrom[1] - from[1]);
+            if (d < bestD) { bestD = d; best = routeEnds[j]; }
+          }
+          if (best) {
+            const trail = [best[0] - G.dirOff * (6 + Math.random() * 8),
+              best[1] + (from[1] > best[1] ? 1 : -1) * (8 + Math.random() * 10)];
+            const k = 0.55 + Math.random() * 0.3;
+            to = [from[0] + (trail[0] - from[0]) * k,
+                  from[1] + (trail[1] - from[1]) * k];
+          } else {
+            to = [from[0] + (ballEnd[0] - from[0]) * 0.4,
+                  from[1] + (ballEnd[1] - from[1]) * 0.4];
+          }
+        } else if (meta.kind === "pass" && depth >= 9) {
+          // Deep safety: cushion over the top, then break on the ball late
+          via = [from[0] + G.dirOff * (15 + Math.random() * 20),
+            from[1] + (Math.random() - 0.5) * 30];
+          const k = 0.35 + Math.random() * 0.3;
+          to = [via[0] + (ballEnd[0] - via[0]) * k,
+                via[1] + (ballEnd[1] - via[1]) * k];
+          viaT = 0.55;
+        } else if (meta.kind === "pass" && depth <= 6) {
+          if (Math.random() < 0.45) {
+            // Pass rush: burst upfield and collapse on the QB
+            to = [from[0] + G.dirOff * (8 + Math.random() * 14),
+                  from[1] + (qbFrom[1] - from[1]) * 0.6];
+          } else {
+            // Zone drop: settle into a hook zone, then drift toward the ball
+            via = [from[0] + G.dirOff * (12 + Math.random() * 18),
+              from[1] + (Math.random() - 0.5) * 26];
+            const k = 0.3 + Math.random() * 0.3;
+            to = [via[0] + (ballEnd[0] - via[0]) * k,
+                  via[1] + (ballEnd[1] - via[1]) * k];
+            viaT = 0.45;
+          }
+        } else {
+          // Run defense: flow to the ball — the nearest three go all the way
+          // in for the tackle, the rest shade toward it.
+          const dist = Math.hypot(ballEnd[0] - from[0], ballEnd[1] - from[1]);
+          const k = dist < G.w * 0.35 ? 0.85 + Math.random() * 0.15 : 0.25 + Math.random() * 0.5;
+          to = [from[0] + (ballEnd[0] - from[0]) * k,
+                from[1] + (ballEnd[1] - from[1]) * k];
+        }
+        defMoves.push({ i, from, to, via, viaT, delay: Math.random() * 0.15,
                         bulge: (Math.random() - 0.5) * G.ht * 0.12 });
       });
       ballAnim.anim = {
@@ -201,6 +322,7 @@ function animateBall(from, to, ms, yOffNorm, meta) {
         carrierIn: "off", qbIdx, carrierIdx, dirOff: G.dirOff,
         losPt: [G.X(from), G.ht / 2],
         qbFrom, carrierFrom,
+        carrierVia, carrierViaT,
         carrierTo: ballEnd,
         bulge: (Math.random() - 0.5) * G.ht * 0.16,
         offMoves, defMoves, pursuers: [],
@@ -483,6 +605,12 @@ function easeInOut(t) {
 }
 function carrierPosAt(A, t) {
   const tRun = A.snapT ? Math.max(0, Math.min(1, (t - A.snapT) / (1 - A.snapT))) : t;
+  // The carrier runs his route: stem, then the break, then the carry.
+  if (A.carrierVia && tRun < A.carrierViaT) {
+    return curvePos(A.carrierFrom, A.carrierVia, easeInOut(tRun / A.carrierViaT), A.bulge);
+  } else if (A.carrierVia) {
+    return curvePos(A.carrierVia, A.carrierTo, easeInOut((tRun - A.carrierViaT) / (1 - A.carrierViaT)), (A.bulge || 0) * 0.6);
+  }
   return curvePos(A.carrierFrom, A.carrierTo, easeInOut(tRun), A.bulge);
 }
 
@@ -623,7 +751,14 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
       const applyMoves = (moves, over) => {
         for (const M of moves || []) {
           const raw = Math.max(0, Math.min(1, (t - M.delay) / (1 - M.delay)));
-          over[M.i] = curvePos(M.from, M.to, easeInOut(raw), M.bulge);
+          // Two-stage paths: a route's stem, then its break.
+          if (M.via && raw < M.viaT) {
+            over[M.i] = curvePos(M.from, M.via, easeInOut(raw / M.viaT), M.bulge);
+          } else if (M.via) {
+            over[M.i] = curvePos(M.via, M.to, easeInOut((raw - M.viaT) / (1 - M.viaT)), (M.bulge || 0) * 0.6);
+          } else {
+            over[M.i] = curvePos(M.from, M.to, easeInOut(raw), M.bulge);
+          }
         }
       };
       applyMoves(A.offMoves, overOff);
@@ -706,10 +841,19 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
       by = ht / 2 + ballAnim.yOff * ht * e;
     }
   }
-  if (bx == null) { bx = X(FIELD.ball); by = ht / 2; }
+  if (bx == null) { bx = X(FIELD.ball); by = ht / 2; ballAngle = 0; lastBallPt = null; }
   bx = Math.max(8, Math.min(w - 8, bx));
+  // The ball points where it's going — spiral on a throw, tucked on a run.
+  if (lastBallPt) {
+    const dx = bx - lastBallPt[0], dy = by - lastBallPt[1];
+    if (dx * dx + dy * dy > 0.25) ballAngle = Math.atan2(dy, dx);
+  } else {
+    ballAngle = 0;
+  }
+  lastBallPt = [bx, by];
   ctx.save();
   ctx.translate(bx, by);
+  ctx.rotate(ballAngle);
   ctx.fillStyle = "#8a4b1f";
   ctx.beginPath();
   ctx.ellipse(0, 0, 7.5, 4.2, 0, 0, Math.PI * 2);
