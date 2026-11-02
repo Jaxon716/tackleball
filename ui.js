@@ -1004,13 +1004,14 @@ function loadCareer() {
         d.history = d.history || [];
         d.current = d.current || null;
         d.year = d.year || 1;
+        d.draftPick = d.draftPick || null;
         d.injuries = d.injuries || {};
         d.stats = Object.assign({ seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 }, d.stats || {});
         return d;
       }
     }
   } catch (e) {}
-  return { careerTeam: null, seasonNumber: 1, ratings: {}, history: [], current: null, year: 1, injuries: {}, stats: { seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 } };
+  return { careerTeam: null, seasonNumber: 1, ratings: {}, history: [], current: null, year: 1, draftPick: null, injuries: {}, stats: { seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 } };
 }
 
 function saveCareer() {
@@ -1305,7 +1306,7 @@ function rollLine(k, r) {
 function rosterText(rolls) {
   return STAT_NAMES.map(k => rollLine(k, rolls[k])).join("\n");
 }
-async function teamCreation(team) {
+async function teamCreation(team, offseasonPick) {
   // YOUR ROSTER: roll each position, one at a time.
   const rolls = {};
   for (const k of STAT_NAMES) {
@@ -1336,6 +1337,12 @@ async function teamCreation(team) {
              "  (OVR " + teamRatings(n).ovr + ")";
     }
     await modal(msg);
+  }
+  // THE OFFSEASON MARKET, for a continuing career: it plays out on top of
+  // the fresh rolls — retirements, training camp, your draft pick, free agency.
+  if (offseasonPick) {
+    const news = await offseasonMarket(team, offseasonPick);
+    await modal("OFFSEASON — AROUND THE LEAGUE\n\n" + news);
   }
   career.ratings = exportRatings();
 }
@@ -1382,8 +1389,9 @@ function renderSeasonHub() {
 
 $("#btn-season").onclick = async () => {
   if (career.current) await modal("You have a saved season in progress.\nStarting a new one deletes it.");
-  // A brand-new career rolls every roster from dice, so the cards stay blind
-  // (no pre-built ratings). Returning seasons keep their rolled rosters.
+  // Every new season starts from dice: the cards stay blind, you roll your
+  // roster live, and the league rolls fresh rosters too. A continuing career
+  // then plays its offseason market (retirements, draft, free agency) on top.
   openTeamSelect("Choose your franchise", null, async team => {
     career.injuries = career.injuries || {};
     career.stats = career.stats || { seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 };
@@ -1392,10 +1400,13 @@ $("#btn-season").onclick = async () => {
     if (fresh) career.year = 1;
     career.injuries[team] = [];
     career.stats.seasonsStarted++;
-    // Pen & Paper team creation, on a fresh franchise only: you pick your
-    // team, roll your six positions live with one mulligan, then the whole
-    // league rolls fresh rosters before the season begins.
-    if (fresh) await teamCreation(team);
+    if (fresh) {
+      career.draftPick = null;
+      await teamCreation(team);
+    } else {
+      // The draft order was set by last season's record (stored at season end).
+      await teamCreation(team, career.draftPick || 17);
+    }
     career.current = {
       userTeam: team,
       seasonNumber: career.seasonNumber,
@@ -1407,7 +1418,7 @@ $("#btn-season").onclick = async () => {
     saveCareer();
     renderSeasonHub();
     showScreen("screen-season");
-  }, () => showScreen("screen-title"), !career.careerTeam);
+  }, () => showScreen("screen-title"), true);
 };
 
 $("#btn-continue").onclick = () => {
@@ -1734,17 +1745,19 @@ async function completeSeason(champion) {
     season: seasonNo, year, team, W: r.W, L: r.L, T: r.T, PF: r.PF, PA: r.PA,
     champion, date: new Date().toISOString().slice(0, 10),
   });
-  // Draft order: worst records pick first (more wins = later pick).
+  // Draft order: worst records pick first (more wins = later pick). The
+  // pick is stored and the market plays out at the start of the NEXT season,
+  // on top of that season's fresh rolls.
   const pickNo = 1 + Object.keys(cur.records).filter(n => n !== team &&
     (cur.records[n].W > r.W || (cur.records[n].W === r.W && cur.records[n].PF < r.PF))).length;
   career.ratings = exportRatings();
   career.injuries[team] = [];
   career.seasonNumber = seasonNo + 1;
   career.careerTeam = team;
+  career.draftPick = pickNo;
   career.current = null;
   cur = null;
   let endMsg = "";
-  let offseasonNews = null;
   if (year >= 5) {
     // Five years in: career complete, summarize it and reset.
     endMsg = "\n\n5-YEAR CAREER COMPLETE" +
@@ -1755,18 +1768,16 @@ async function completeSeason(champion) {
     career.injuries = {};
     career.careerTeam = null;
     career.year = 1;
+    career.draftPick = null;
   } else {
     career.year = year + 1;
-    // The offseason market: retirements, camp rolls, the draft, free agency.
-    offseasonNews = await offseasonMarket(team, pickNo);
-    career.ratings = exportRatings();
   }
   saveCareer();
   renderTitle();
   await modal("SEASON " + seasonNo + " COMPLETE" +
         "\n" + team + ": " + r.W + "-" + r.L + "-" + r.T + " (year " + year + " of 5)" +
-        "\nSuper Bowl champion: " + champion + endMsg);
-  if (offseasonNews) await modal("OFFSEASON — AROUND THE LEAGUE\n\n" + offseasonNews);
+        "\nSuper Bowl champion: " + champion + endMsg +
+        "\n\nThe offseason market runs when you start your next season.");
   showScreen("screen-title");
 }
 
