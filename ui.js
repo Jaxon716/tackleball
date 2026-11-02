@@ -1283,12 +1283,44 @@ function addSeasonLine(text) {
   f.scrollTop = f.scrollHeight;
 }
 
+// Pen & Paper team creation: every rating rolls 3d6 on the 3-18 scale.
+function roll3d6() {
+  const dice = [1, 2, 3].map(() => 1 + Math.floor(Math.random() * 6));
+  return { dice, total: dice.reduce((a, b) => a + b, 0) };
+}
+
+// Team creation at the start of a career: the whole league rolls fresh
+// rosters on 3d6, then you roll yours with one mulligan.
+async function teamCreation(team) {
+  for (const n in TEAMS) {
+    for (const k of STAT_NAMES) TEAMS[n][k.toLowerCase()] = roll3d6().total;
+  }
+  const rolls = {};
+  for (const k of STAT_NAMES) {
+    rolls[k] = roll3d6();
+    TEAMS[team][k.toLowerCase()] = rolls[k].total;
+  }
+  const show = () => STAT_NAMES.map(k =>
+    k + ": [" + rolls[k].dice.join(", ") + "] = " + rolls[k].total).join("\n");
+  await modal("TEAM CREATION — every team in the league just rolled a fresh roster on 3d6.\n\nYOUR ROSTER:\n" + show());
+  const mull = await choose("One mulligan — re-roll a position?",
+    STAT_NAMES.map(k => ({ label: "Re-roll " + k, value: k }))
+      .concat([{ label: "Keep this roster", value: null }]));
+  if (mull) {
+    rolls[mull] = roll3d6();
+    TEAMS[team][mull.toLowerCase()] = rolls[mull].total;
+    await modal(mull + " re-rolled: [" + rolls[mull].dice.join(", ") + "] = " + rolls[mull].total +
+                "\n\nYOUR ROSTER:\n" + show());
+  }
+  career.ratings = exportRatings();
+}
+
 function renderSeasonHub() {
   cur = career.current;
   const r = cur.records[cur.userTeam];
   $("#season-head").innerHTML =
     '<div class="sh-line">YEAR ' + (career.year || 1) + ' OF 5 · SEASON ' + cur.seasonNumber + ' — ' + cur.userTeam + '</div>' +
-    '<div class="sh-record">' + r.W + '-' + r.L + '-' + r.T + ' · PF ' + r.PF + ' · PA ' + r.PA + '</div>' +
+    '<div class="sh-record">YOUR SEASON: ' + r.W + '-' + r.L + '-' + r.T + ' · PF ' + r.PF + ' · PA ' + r.PA + '</div>' +
     ((career.injuries[cur.userTeam] || []).length ?
       '<div class="sh-record" style="color:#ff8f8f">SEASON INJURIES: ' + career.injuries[cur.userTeam].join(", ") + '</div>' : '') +
     '<div class="sh-week">' + (cur.week < 17 ? "WEEK " + (cur.week + 1) + " OF 17" : "REGULAR SEASON COMPLETE") + '</div>';
@@ -1308,8 +1340,12 @@ function renderSeasonHub() {
   } else {
     const btn = h("button", "menu-btn", "Start Playoffs");
     btn.onclick = () => {
+      // Quitting playoffs rewinds the career tally, so replaying the
+      // playoffs never counts a round's win or loss twice.
+      const snapStats = JSON.parse(JSON.stringify(career.stats));
       runPlayoffs().catch(e => {
-        if (!(e && e.abort)) console.error(e);
+        if (e && e.abort) { career.stats = snapStats; saveCareer(); }
+        else console.error(e);
         renderSeasonHub();
         showScreen("screen-season");
       });
@@ -1321,7 +1357,7 @@ function renderSeasonHub() {
 
 $("#btn-season").onclick = async () => {
   if (career.current) await modal("You have a saved season in progress.\nStarting a new one deletes it.");
-  openTeamSelect("Choose your franchise", null, team => {
+  openTeamSelect("Choose your franchise", null, async team => {
     career.injuries = career.injuries || {};
     career.stats = career.stats || { seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 };
     const fresh = !career.careerTeam;
@@ -1329,6 +1365,10 @@ $("#btn-season").onclick = async () => {
     if (fresh) career.year = 1;
     career.injuries[team] = [];
     career.stats.seasonsStarted++;
+    // Pen & Paper team creation: on a fresh franchise the WHOLE league rolls
+    // fresh ratings (3d6 per position per team), and you roll your own six
+    // positions live with one mulligan.
+    if (fresh) await teamCreation(team);
     career.current = {
       userTeam: team,
       seasonNumber: career.seasonNumber,
@@ -1407,9 +1447,27 @@ function recapText(wi, games, injNews) {
 async function playWeek() {
   const wi = cur.week;
   const myTeam = cur.userTeam;
-  // Snapshot so quitting mid-week never double-counts games already simmed.
+  // Snapshot so quitting mid-week — in-game or by closing the app — never
+  // double-counts: standings, this week's results AND the career W/L tally
+  // all roll back together, so a replayed week counts your wins and losses
+  // exactly once. The snapshot lives in the saved career, so it survives
+  // the app being closed mid-week.
+  if (cur.weekSnap && cur.weekSnap.week === wi) {
+    cur.records = JSON.parse(JSON.stringify(cur.weekSnap.records));
+    cur.results = JSON.parse(JSON.stringify(cur.weekSnap.results));
+    career.stats = JSON.parse(JSON.stringify(cur.weekSnap.stats));
+  } else {
+    cur.weekSnap = {
+      week: wi,
+      records: JSON.parse(JSON.stringify(cur.records)),
+      results: JSON.parse(JSON.stringify(cur.results)),
+      stats: JSON.parse(JSON.stringify(career.stats)),
+    };
+  }
+  saveCareer();
   const snapRecords = JSON.parse(JSON.stringify(cur.records));
   const snapResults = (cur.results[wi] || []).slice();
+  const snapStats = JSON.parse(JSON.stringify(career.stats));
   // The rest of the league plays FIRST — check the scores and injury
   // report before taking the field, like the NFL's weekly news show.
   const otherGames = [], injNews = [];
@@ -1438,12 +1496,18 @@ async function playWeek() {
     if (score === null) {
       cur.records = snapRecords;
       cur.results[wi] = snapResults;
+      career.stats = snapStats;
+      // The week snapshot stays: the week is still unplayed, so a later
+      // replay (even after the app was closed) restores from the same point.
       saveCareer();
       renderSeasonHub();
       showScreen("screen-season");
       return;
     }
     const hs = score[home]; const as = score[away];
+    recordResult(cur.records, home, away, hs, as);
+    cur.results[wi] = cur.results[wi] || [];
+    cur.results[wi].push({ home, away, hs, as });
     career.stats.gamesPlayed++;
     const my = home === myTeam ? hs : as, their = home === myTeam ? as : hs;
     if (my > their) career.stats.wins++; else if (their > my) career.stats.losses++; else career.stats.ties++;
@@ -1451,6 +1515,7 @@ async function playWeek() {
     saveCareer();
     addSeasonLine(TEAMS[away].abbr + " " + as + " — " + hs + " " + TEAMS[home].abbr + "  (your game)");
   }
+  cur.weekSnap = null; // week complete — everything is counted exactly once now
   cur.week++;
   saveCareer();
   renderSeasonHub();
@@ -1558,16 +1623,16 @@ function choose(text, options) {
     $("#modal-text").textContent = text;
     const ok = $("#modal-ok");
     ok.classList.add("hidden");
-    const card = ok.parentNode;
+    const card = ok.parentNode || ok;
     for (const o of options) {
       const b = h("button", "menu-btn modal-choice", o.label);
       b.style.marginTop = "8px";
       b.onclick = () => {
-        card.querySelectorAll(".modal-choice").forEach(x => x.remove());
+        (ok.parentNode || ok).querySelectorAll(".modal-choice").forEach(x => x.remove());
         ok.classList.remove("hidden");
         res(o.value);
       };
-      card.appendChild(b);
+      (card.appendChild ? card : ok).appendChild(b);
     }
     $("#modal").classList.remove("hidden");
   });
