@@ -1093,8 +1093,9 @@ function statRowsHtml(game) {
         const M = t.majorInjuries.filter(x => x === k).length;
         if (!m && !M) return "Healthy";
         const parts = [];
+        const carried = (t.seasonInjuries || []).includes(k) && M;
         if (m) parts.push("minor ×" + m + " (rest of game)");
-        if (M) parts.push("major ×" + M + " (rest of season)");
+        if (M) parts.push("major ×" + M + " (rest of season" + (carried ? ", injured earlier this season" : "") + ")");
         return parts.join(", ") + " — modifier −" + (m + M);
       };
       h += row(k + " injured", cell(uTeam), cell(aTeam));
@@ -1229,6 +1230,9 @@ async function launchGame(userTeam, aiTeam, userHome, seasonInjuries) {
   for (const pos of (seasonInjuries || [])) {
     if (!game.user.majorInjuries.includes(pos)) game.user.majorInjuries.push(pos);
   }
+  // Remember which injuries were carried in from earlier in the season, so
+  // the halftime/final reports can tell them apart from this game's injuries.
+  game.user.seasonInjuries = (seasonInjuries || []).slice();
   pres.game = game;
   pres.setEndZones(game.leftTeam, game.rightTeam);
   pres.setField(50, 50);
