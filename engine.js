@@ -33,6 +33,7 @@ class Team {
   constructor(name, home) {
     this.name = name;
     const t = TEAMS[name];
+    this.abbr = t.abbr; // the team's short mark, for banners and the score bug
     this.scores = { QB: t.qb, RB: t.rb, WR: t.wr, LM: t.lm, LB: t.lb, DB: t.db };
     this.bonuses = {};
     for (const k in this.scores) this.bonuses[k] = bonus(this.scores[k]);
