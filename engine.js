@@ -125,6 +125,8 @@ class Game {
 
   async start() {
     this.pres.setEndZones(this.leftTeam, this.rightTeam);
+    // Teams face off: the pre-game matchup card, then you say when you're ready.
+    await this.pres.showMatchup(this);
     await this.pres.banner("COIN TOSS", "neutral", 900);
     await this._say("Team captains meet at midfield for the coin toss.");
     const call = await this.pres.ask("Call the toss:", [

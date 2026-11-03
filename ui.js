@@ -1073,10 +1073,74 @@ function showFinalOverlay(game) {
   });
 }
 
+// Pre-game matchup card: both teams face off with team ratings, position
+// ratings, season records and injuries — shown right before the coin toss.
+function injLine(t) {
+  const bad = [];
+  if (t.majorInjuries.length) bad.push("OUT: " + t.majorInjuries.join(", "));
+  if (t.minorInjuries.length) bad.push("banged up: " + t.minorInjuries.join(", "));
+  if (!bad.length) return "";
+  return '<div style="font-size:12px;margin:4px 0;color:#ffb3b3">' + TEAMS[t.name].abbr +
+    " — " + bad.join(" · ") + '</div>';
+}
+function posCell(t, k) {
+  const v = TEAMS[t.name][k.toLowerCase()];
+  let s = '<b>' + v + '</b> <span class="muted">(' + bonus(v) + ')</span>';
+  const P = k.toUpperCase();
+  if (t.majorInjuries.indexOf(P) >= 0) s += ' <span style="color:#ff8f8f">OUT</span>';
+  else if (t.minorInjuries.indexOf(P) >= 0) s += ' <span style="color:#ffd77a">banged up</span>';
+  career.stars = career.stars || {};
+  if (career.stars[P] === t.name) s += ' <span style="color:#ffd400">★ STAR</span>';
+  return s;
+}
+function recordCell(n) {
+  if (!cur || !cur.records) return "—";
+  const r = cur.records[n];
+  if (!r) return "—";
+  return r.W + "-" + r.L + "-" + r.T + " (PF " + r.PF + ", PA " + r.PA + ")";
+}
+function matchupHtml(game) {
+  const u = game.user, a = game.ai;
+  const ru = teamRatings(u.name), ra = teamRatings(a.name);
+  let html = '<div class="panel-title">' + TEAMS[u.name].abbr + " at " + TEAMS[a.name].abbr + '</div>';
+  html += '<div style="text-align:center;margin-bottom:8px">' + chip(u.name) + " " + u.name +
+    " <b>vs</b> " + chip(a.name) + " " + a.name + '</div>';
+  html += '<table class="info-table">' +
+    '<tr><th></th><th>' + TEAMS[u.name].abbr + '</th><th>' + TEAMS[a.name].abbr + '</th></tr>' +
+    '<tr><td class="chip-cell">Record</td><td>' + recordCell(u.name) + '</td><td>' + recordCell(a.name) + '</td></tr>' +
+    '<tr><td class="chip-cell">OFF</td><td><b>' + ru.off + '</b> (' + ru.offMod + ')</td><td><b>' + ra.off + '</b> (' + ra.offMod + ')</td></tr>' +
+    '<tr><td class="chip-cell">DEF</td><td><b>' + ru.def + '</b> (' + ru.defMod + ')</td><td><b>' + ra.def + '</b> (' + ra.defMod + ')</td></tr>' +
+    '<tr><td class="chip-cell">OVR</td><td><b>' + ru.ovr + '</b> (' + ru.ovrMod + ')</td><td><b>' + ra.ovr + '</b> (' + ra.ovrMod + ')</td></tr>';
+  for (const k of ["QB", "RB", "WR", "LM", "LB", "DB"]) {
+    html += '<tr><td class="chip-cell">' + k + '</td><td>' + posCell(u, k) + '</td><td>' + posCell(a, k) + '</td></tr>';
+  }
+  html += '</table>';
+  html += injLine(u) + injLine(a);
+  return html;
+}
+function showMatchupModal(game) {
+  return new Promise(res => {
+    const t = $("#modal-text");
+    const ok = $("#modal-ok");
+    const oldOk = ok.textContent;
+    t.innerHTML = matchupHtml(game);
+    ok.textContent = "Ready — kick it off!";
+    ok.classList.remove("hidden");
+    $("#modal").classList.remove("hidden");
+    ok.onclick = () => {
+      $("#modal").classList.add("hidden");
+      ok.textContent = oldOk;
+      t.textContent = "";
+      res();
+    };
+  });
+}
+
 const pres = {
   game: null,
   async say(text, cls) { addFeed(text, cls); await delay(L()); },
   async banner(text, cls, ms) { await showBanner(text, cls, ms); },
+  async showMatchup(g) { await showMatchupModal(g); },
   async moveBall(from, to, ms, yOffNorm, meta) { await animateBall(from, to, ms, yOffNorm, meta); },
   setEndZones(leftTeam, rightTeam) { FIELD.left = leftTeam; FIELD.right = rightTeam; },
   setPossession(team) { FIELD.off = team; },
