@@ -359,6 +359,12 @@ class Game {
       if (desperate && this.toGo <= 4) return "Pass";
       // Inside the opponent's 40 a punt is a wasted down.
       if (this.yard >= 60) return Math.random() < 0.5 ? "Pass" : "Run";
+      // Occasionally the AI runs a fake kick instead of the punt — risky
+      // per the book (the first try needs 1d6 of 4+), so only each team's
+      // first fake of the game.
+      if (!this.fakeUses[off.name] && fgDist > 52 && Math.random() < 0.12) {
+        return Math.random() < 0.3 ? "Fake field goal" : "Fake punt";
+      }
       return "Punt";
     }
     if (this.yard >= 82 && this.down <= 3 && Math.random() < 0.16) return "Special pass";
@@ -1168,6 +1174,7 @@ class Game {
       const [gain, rs] = roll(2, 6, false);
       await this._say("Yardage dice [" + rollText(rs) + "] produce " + gain + " yards.", "good");
       this.downResult = null;
+      this.lastPlayKind = "run"; // the punter/kicker carries it out of the fake
       await this.advance(off, gain);
       if (!this.gameOver && this.offense === off) await this.finishDown(off, deff);
     } else {
