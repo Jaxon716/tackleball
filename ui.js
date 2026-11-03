@@ -1149,13 +1149,20 @@ function loadCareer() {
         d.current = d.current || null;
         d.year = d.year || 1;
         d.draftPick = d.draftPick || null;
+        d.money = d.money || {};
+        d.markets = d.markets || {};
+        d.stars = d.stars || {};
+        d.starNames = d.starNames || {};
+        d.offseason = d.offseason || null;
         d.injuries = d.injuries || {};
         d.stats = Object.assign({ seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 }, d.stats || {});
         return d;
       }
     }
   } catch (e) {}
-  return { careerTeam: null, seasonNumber: 1, ratings: {}, history: [], current: null, year: 1, draftPick: null, injuries: {}, stats: { seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 } };
+  return { careerTeam: null, seasonNumber: 1, ratings: {}, history: [], current: null, year: 1, draftPick: null,
+    money: {}, markets: {}, stars: {}, starNames: {}, offseason: null,
+    injuries: {}, stats: { seasonsStarted: 0, gamesPlayed: 0, wins: 0, losses: 0, ties: 0, championships: 0 } };
 }
 
 function saveCareer() {
@@ -1482,12 +1489,18 @@ async function teamCreation(team, offseasonPick) {
     }
     await modal(msg);
   }
-  // THE OFFSEASON MARKET, for a continuing career: it plays out on top of
-  // the fresh rolls — retirements, training camp, your draft pick, free agency.
-  if (offseasonPick) {
-    const news = await offseasonMarket(team, offseasonPick);
-    await modal("OFFSEASON — AROUND THE LEAGUE\n\n" + news);
+  // Reigning star players report to camp: +2 to their position for the season.
+  career.stars = career.stars || {};
+  for (const pos of POS_LIST) {
+    const holder = career.stars[pos];
+    if (holder && TEAMS[holder]) {
+      TEAMS[holder][pos.toLowerCase()] = Math.min(18, TEAMS[holder][pos.toLowerCase()] + 2);
+    }
   }
+  // THE OFF-SEASON, for a continuing career: fan bases, revenue, events for
+  // the worst teams, development dice, then the draft and free agency — all
+  // played out on top of the fresh rolls, exactly like the rulebook.
+  if (offseasonPick) await offseasonSeason(team, offseasonPick);
   career.ratings = exportRatings();
 }
 
@@ -1496,7 +1509,8 @@ function renderSeasonHub() {
   const r = cur.records[cur.userTeam];
   $("#season-head").innerHTML =
     '<div class="sh-line">YEAR ' + (career.year || 1) + ' OF 5 · SEASON ' + cur.seasonNumber + ' — ' + cur.userTeam + '</div>' +
-    '<div class="sh-record">YOUR SEASON: ' + r.W + '-' + r.L + '-' + r.T + ' · PF ' + r.PF + ' · PA ' + r.PA + '</div>' +
+    '<div class="sh-record">YOUR SEASON: ' + r.W + '-' + r.L + '-' + r.T + ' · PF ' + r.PF + ' · PA ' + r.PA +
+    ' · BANKED $' + ((career.money && career.money[cur.userTeam]) || 0) + 'M</div>' +
     ((career.injuries[cur.userTeam] || []).length ?
       '<div class="sh-record" style="color:#ff8f8f">SEASON INJURIES: ' + career.injuries[cur.userTeam].join(", ") + '</div>' : '') +
     '<div class="sh-week">' + (cur.week < 17 ? "WEEK " + (cur.week + 1) + " OF 17" : "REGULAR SEASON COMPLETE") + '</div>';
@@ -1775,28 +1789,7 @@ async function runPlayoffs() {
   completeSeason(champion);
 }
 
-function rerollLeague() {
-  // Offseason rolls: every team's six ratings drift by up to ±3 on the 3-18 scale.
-  const before = {};
-  for (const n in TEAMS) before[n] = teamRatings(n).ovr;
-  for (const n in TEAMS) {
-    const t = TEAMS[n];
-    for (const k of STAT_NAMES) {
-      const d = (1 + Math.floor(Math.random() * 6)) - (1 + Math.floor(Math.random() * 6));
-      const key = k.toLowerCase();
-      t[key] = Math.max(3, Math.min(18, t[key] + Math.max(-3, Math.min(3, d))));
-    }
-  }
-  let riser = null, faller = null;
-  for (const n in TEAMS) {
-    const d = teamRatings(n).ovr - before[n];
-    if (!riser || d > riser.d) riser = { n, d };
-    if (!faller || d < faller.d) faller = { n, d };
-  }
-  return { riser, faller };
-}
-
-/* ================= Offseason market (Pen & Paper career rules) ================= */
+/* ================= Off-season (Pen & Paper career rules) ================= */
 
 // A modal that offers choices instead of just OK — used by the draft and
 // free agency. Resolves with the chosen option's value.
@@ -1825,43 +1818,324 @@ function rookieRoll() {
   return Math.min(18, 6 + (1 + Math.floor(Math.random() * 6)) + (1 + Math.floor(Math.random() * 6)));
 }
 
-async function offseasonMarket(team, pickNo) {
-  const news = [];
-  // 1. RETIREMENTS — every position on every team can age out.
-  const mine = [], aiHoles = [];
-  let count = 0;
-  for (const n in TEAMS) {
-    for (const k of STAT_NAMES) {
-      if (Math.random() < 0.12) {
-        count++;
-        TEAMS[n][k.toLowerCase()] = 6; // replacement-level until replaced
-        if (n === team) mine.push(k);
-        else aiHoles.push([n, k.toLowerCase()]);
+// League geography: each team's home market, which cities count as major
+// markets (shared — other teams can hold them too), and the minor-market
+// pool teams can expand into or relocate to.
+const TEAM_CITIES = {
+  "Arizona Cardinals": "Phoenix", "Atlanta Falcons": "Atlanta",
+  "Baltimore Ravens": "Baltimore", "Buffalo Bills": "Buffalo",
+  "Carolina Panthers": "Charlotte", "Chicago Bears": "Chicago",
+  "Cincinnati Bengals": "Cincinnati", "Cleveland Browns": "Cleveland",
+  "Dallas Cowboys": "Dallas", "Denver Broncos": "Denver",
+  "Detroit Lions": "Detroit", "Green Bay Packers": "Green Bay",
+  "Houston Texans": "Houston", "Indianapolis Colts": "Indianapolis",
+  "Jacksonville Jaguars": "Jacksonville", "Kansas City Chiefs": "Kansas City",
+  "Las Vegas Raiders": "Las Vegas", "Los Angeles Chargers": "Los Angeles",
+  "Los Angeles Rams": "Los Angeles", "Miami Dolphins": "Miami",
+  "Minnesota Vikings": "Minneapolis", "New England Patriots": "Boston",
+  "New Orleans Saints": "New Orleans", "New York Giants": "New York",
+  "New York Jets": "New York", "Philadelphia Eagles": "Philadelphia",
+  "Pittsburgh Steelers": "Pittsburgh", "San Francisco 49ers": "San Francisco",
+  "Seattle Seahawks": "Seattle", "Tampa Bay Buccaneers": "Tampa Bay",
+  "Tennessee Titans": "Nashville", "Washington Commanders": "Washington",
+};
+const MAJOR_MARKETS = ["New York", "Los Angeles", "Chicago", "Dallas",
+  "Philadelphia", "Miami", "Atlanta", "Houston", "San Francisco"];
+const EXPANSION_POOL = ["Portland", "San Antonio", "Salt Lake City", "Memphis",
+  "Columbus", "Louisville", "Birmingham", "Omaha", "Sacramento", "Milwaukee",
+  "Raleigh", "Tucson", "Fresno", "Norfolk", "Boise", "Albuquerque"];
+const POS_LIST = ["QB", "RB", "WR", "LM", "LB", "DB"];
+
+// Record tiers from the final standings — they drive fan-base rolls,
+// revenue, off-season events for the worst teams, and free development.
+function computeTiers(records) {
+  const teams = Object.keys(records);
+  const byKey = t => standingsKey(t, records);
+  const sorted = teams.slice().sort((a, b) => cmpKey(byKey(b), byKey(a)));
+  const best = sorted[0], worst = sorted[sorted.length - 1];
+  const tiers = {};
+  for (const div in DIVISIONS) {
+    const ds = DIVISIONS[div].slice().sort((a, b) => cmpKey(byKey(b), byKey(a)));
+    tiers[ds[0]] = "Best in Division";
+    tiers[ds[ds.length - 1]] = "Worst in Division";
+  }
+  tiers[best] = "Best in League";
+  tiers[worst] = "Worst in League";
+  for (const t of teams) {
+    if (tiers[t]) continue;
+    const pts = byKey(t)[0];
+    if (pts > 8.5) tiers[t] = "Winning Record";
+    else if (pts === 8.5) tiers[t] = "Even Record";
+    else tiers[t] = "Losing Record";
+  }
+  return { tiers, worst: teams.filter(t =>
+    tiers[t] === "Worst in Division" || tiers[t] === "Worst in League") };
+}
+
+// The fan-base d6 table by season record (grow / no change / shrink).
+function growRoll(tier) {
+  const r = 1 + Math.floor(Math.random() * 6);
+  if (tier === "Best in League") return r <= 4 ? "grow" : "none";
+  if (tier === "Best in Division") return r <= 3 ? "grow" : "none";
+  // The book prints "1-3 grow / 3-6 no change" for a winning record; read
+  // as 1-3 grow, 4-6 no change.
+  if (tier === "Winning Record") return r <= 3 ? "grow" : "none";
+  if (tier === "Even Record") return r === 1 ? "grow" : (r === 6 ? "shrink" : "none");
+  if (tier === "Losing Record") return r >= 5 ? "shrink" : "none";
+  if (tier === "Worst in Division") return r >= 4 ? "shrink" : "none";
+  return r >= 3 ? "shrink" : "none"; // Worst in League
+}
+
+// Revenue by record tier: [major market rate, minor market rate] in $M.
+const INCOME_RATES = {
+  "Best in League": [20, 12], "Best in Division": [15, 9],
+  "Winning Record": [10, 6], "Even Record": [8, 4],
+  "Losing Record": [6, 2], "Worst in Division": [3, 1],
+  "Worst in League": [1, 0],
+};
+function teamMarkets(t) {
+  career.markets = career.markets || {};
+  if (!career.markets[t]) {
+    career.markets[t] = { home: TEAM_CITIES[t] || "Home", minors: [] };
+  }
+  return career.markets[t];
+}
+function incomeFor(t, tiers) {
+  const rates = INCOME_RATES[tiers[t]] || INCOME_RATES["Even Record"];
+  const m = teamMarkets(t);
+  const homeMajor = MAJOR_MARKETS.includes(m.home) ? 1 : 0;
+  return homeMajor * rates[0] + (m.minors.length + (homeMajor ? 0 : 1)) * rates[1];
+}
+function expandMarket(t) {
+  const m = teamMarkets(t);
+  const pool = EXPANSION_POOL.filter(c => c !== m.home && m.minors.indexOf(c) < 0);
+  if (!pool.length) return null;
+  const city = pool[Math.floor(Math.random() * pool.length)];
+  m.minors.push(city);
+  return city;
+}
+function contractMarket(t) {
+  const m = teamMarkets(t);
+  if (!m.minors.length) return null;
+  return m.minors.splice(Math.floor(Math.random() * m.minors.length), 1)[0];
+}
+
+// Every team rolls 1d20 for negative developments since last season.
+function setbackRoll() {
+  const r = 1 + Math.floor(Math.random() * 20);
+  return r <= 10 ? 1 : r <= 15 ? 2 : r <= 18 ? 3 : r === 19 ? 4 : 5;
+}
+// A development attempt: 1d20 — bad year (−1), no change, +1, +2,
+// or a 20 recruits (or steals) the league's star player at that position.
+function improveRoll() {
+  const r = 1 + Math.floor(Math.random() * 20);
+  if (r === 1) return { r, delta: -1, star: false };
+  if (r <= 9) return { r, delta: 0, star: false };
+  if (r <= 15) return { r, delta: 1, star: false };
+  if (r <= 19) return { r, delta: 2, star: false };
+  return { r, delta: 2, star: true };
+}
+
+const STAR_FIRST = ["Marcus", "DeShawn", "Trey", "Colt", "Ezra", "Hank",
+  "Jermaine", "Kai", "Luka", "Monte", "Nico", "Omar", "Rashad", "Silas",
+  "Vaughn", "Zeke", "Bo", "Cyrus", "Dax", "Emmitt"];
+const STAR_LAST = ["Bellweather", "Granger", "Holloway", "Kingsley", "Maddox",
+  "Stallworth", "Vance", "Whitlock", "Cortez", "Draper", "Fontaine",
+  "Ironside", "Mercer", "Okafor", "Pruitt", "Vandermeer", "Rooker", "Tibbs"];
+function starName() {
+  return STAR_FIRST[Math.floor(Math.random() * STAR_FIRST.length)] + " " +
+    STAR_LAST[Math.floor(Math.random() * STAR_LAST.length)];
+}
+function starFlavor(pos) {
+  const sub = 1 + Math.floor(Math.random() * 6);
+  const f = {
+    QB: sub <= 3 ? "quarterback" : "center",
+    RB: sub <= 3 ? "fullback" : "running back",
+    WR: sub <= 3 ? "wide receiver" : "tight end",
+    LM: sub <= 3 ? "defensive end" : "defensive tackle",
+    LB: "linebacker",
+    DB: sub <= 3 ? "cornerback" : "safety",
+  };
+  return f[pos] || pos;
+}
+// A star signs (or is stolen from another team): +2 to the position score,
+// the old team loses theirs. Only one star per position league-wide.
+function starFlow(team, pos, log) {
+  const key = pos.toLowerCase();
+  career.stars = career.stars || {};
+  career.starNames = career.starNames || {};
+  const prev = career.stars[pos];
+  const name = starName();
+  const before = TEAMS[team][key];
+  let line;
+  if (prev && prev !== team) {
+    TEAMS[prev][key] = Math.max(3, TEAMS[prev][key] - 2);
+    line = "STAR STOLEN: " + name + " (" + starFlavor(pos) + ") ditches " + TEAMS[prev].abbr +
+      " for " + TEAMS[team].abbr + " — " + TEAMS[prev].abbr + " " + pos + " " + TEAMS[prev][key] +
+      ", " + TEAMS[team].abbr + " " + pos + " " + before + " → " + Math.min(18, before + 2);
+  } else if (prev === team) {
+    line = "STAR RE-SIGNED: " + name + " (" + starFlavor(pos) + ") stays with " + TEAMS[team].abbr +
+      " — " + pos + " " + before + " → " + Math.min(18, before + 2);
+  } else {
+    line = "STAR PLAYER: " + name + " (" + starFlavor(pos) + ") signs with " + TEAMS[team].abbr +
+      " — " + pos + " " + before + " → " + Math.min(18, before + 2);
+  }
+  TEAMS[team][key] = Math.min(18, before + 2);
+  career.stars[pos] = team;
+  career.starNames[pos] = name;
+  log.push(line);
+}
+
+function runAttempt(team, pos, log) {
+  const roll = improveRoll();
+  const key = pos.toLowerCase();
+  const before = TEAMS[team][key];
+  if (roll.star) {
+    starFlow(team, pos, log);
+    return log[log.length - 1];
+  }
+  TEAMS[team][key] = Math.max(3, Math.min(18, before + roll.delta));
+  log.push(pos + ": 1d20 [" + roll.r + "] " +
+    (roll.delta > 0 ? "+" + roll.delta : roll.delta < 0 ? "bad development −1" : "no change") +
+    " → " + before + " → " + TEAMS[team][key]);
+  return null;
+}
+async function userAttempt(team, tag, log) {
+  const pos = await choose(tag + " — choose the position to develop:\n\n" +
+    log.slice(-6).join("\n"), POS_LIST.map(p => ({ label: p, value: p })));
+  const starLine = runAttempt(team, pos, log);
+  if (starLine) await modal(starLine);
+}
+// AI teams develop their weakest position silently.
+function aiAttempt(team) {
+  const pos = POS_LIST.reduce((lo, p) =>
+    TEAMS[team][p.toLowerCase()] < TEAMS[team][lo.toLowerCase()] ? p : lo, "QB");
+  runAttempt(team, pos, []);
+}
+
+// THE OFF-SEASON, played out after the fresh rolls: fan bases, revenue,
+// events for the worst teams, development dice, then the draft and free agency.
+async function offseasonSeason(team, pickNo) {
+  const info = career.offseason || { tiers: {}, worst: [] };
+  const tier = t => info.tiers[t] || "Even Record";
+  career.money = career.money || {};
+  const news = [], devLog = [];
+  // 1. FAN BASES: every team rolls on the grow/no change/shrink table.
+  let grew = 0, shrank = 0, myFan = null;
+  for (const t in TEAMS) {
+    const res = growRoll(tier(t));
+    if (res === "grow") {
+      const city = expandMarket(t);
+      if (city) {
+        grew++;
+        if (t === team) myFan = "FAN BASE: your roll expanded the fan base into " + city + ".";
+      }
+    } else if (res === "shrink") {
+      const city = contractMarket(t);
+      if (city) {
+        shrank++;
+        if (t === team) myFan = "FAN BASE: contraction — you lost " + city + ".";
       }
     }
   }
-  news.push("RETIREMENTS: " + (mine.length ? "your " + mine.join(" and ") + " retired" : "nobody on your team retired") +
-            ". " + count + " players retired league-wide.");
-  // 2. TRAINING CAMP — the league-wide development rolls.
-  const rolls = rerollLeague();
-  news.push("TRAINING CAMP: " + rolls.riser.n + " improved the most (OVR +" + rolls.riser.d +
-            "), " + rolls.faller.n + " dropped the most (OVR " + rolls.faller.d + ").");
-  // AI teams draft rookies onto their retired spots.
-  for (const [n, key] of aiHoles) TEAMS[n][key] = rookieRoll();
-  // 3. THE DRAFT — worst records pick first; you choose the position.
-  const posList = ["QB", "RB", "WR", "LM", "LB", "DB"];
+  if (myFan) news.push(myFan);
+  news.push("AROUND THE LEAGUE: " + grew + " teams expanded their fan base, " +
+    shrank + " contracted.");
+  // 2. REVENUE: markets pay by record, banked for the off-season.
+  const income = {}, wallet = {};
+  for (const t in TEAMS) {
+    income[t] = incomeFor(t, info.tiers);
+    wallet[t] = (career.money[t] || 0) + income[t];
+  }
+  // 3. OFF-SEASON EVENTS: worst in division or league roll 2d6.
+  for (const t of (info.worst || [])) {
+    const r = (1 + Math.floor(Math.random() * 6)) + (1 + Math.floor(Math.random() * 6));
+    if (r === 2) {
+      if (t === team) {
+        for (const p of POS_LIST) TEAMS[t][p.toLowerCase()] = Math.max(3, TEAMS[t][p.toLowerCase()] - 3);
+        news.push("FRANCHISE CRISIS: a fan revolt nearly folded your franchise — the league took over and stripped the roster (every position −3).");
+      } else {
+        for (const p of POS_LIST) TEAMS[t][p.toLowerCase()] = 3;
+        news.push("FRANCHISE FOLDED: the " + TEAMS[t].abbr + " collapsed from empty stadiums — the league installed a bare-bones roster (all ratings 3).");
+      }
+    } else if (r <= 5) {
+      if (wallet[t] >= 30) {
+        wallet[t] -= 30;
+        news.push(t === team ?
+          "STADIUM RESCUE: you spent $30M on improvements and public relations — the fans stay." :
+          TEAMS[t].abbr + " spent $30M on a stadium rescue and stay put.");
+      } else {
+        const m = teamMarkets(t);
+        const pool = EXPANSION_POOL.filter(c => c !== m.home);
+        m.home = pool[Math.floor(Math.random() * pool.length)];
+        m.minors = [];
+        news.push((t === team ? "RELOCATION: you couldn't fund stadium improvements — the franchise moved to " :
+          "RELOCATION: the " + TEAMS[t].abbr + " moved to ") + m.home + ".");
+      }
+    }
+  }
+  // 4. DEVELOPMENT: every team rolls for setbacks; you assign your hits.
+  const freeAttempts = (info.tiers[team] === "Worst in Division" ||
+    info.tiers[team] === "Worst in League") ? 2 : 1;
+  for (const t in TEAMS) {
+    const pts = setbackRoll();
+    if (t === team) {
+      devLog.push("SETBACK: 1d20 — " + pts + " point" + (pts > 1 ? "s" : "") + " lost off the roster.");
+      for (let i = 0; i < pts; i++) {
+        const pos = await choose("DEVELOPMENT SETBACK (" + (i + 1) + " of " + pts +
+          ") — pick the position that takes the hit:",
+          POS_LIST.map(p => ({ label: p + " −1", value: p })));
+        const key = pos.toLowerCase();
+        const before = TEAMS[t][key];
+        TEAMS[t][key] = Math.max(3, before - 1);
+        devLog.push(pos + ": " + before + " → " + TEAMS[t][key]);
+      }
+    } else {
+      for (let i = 0; i < pts; i++) {
+        const pos = POS_LIST[Math.floor(Math.random() * POS_LIST.length)];
+        TEAMS[t][pos.toLowerCase()] = Math.max(3, TEAMS[t][pos.toLowerCase()] - 1);
+      }
+    }
+  }
+  // 5. DEVELOPMENT ATTEMPTS: one free (two if you were division-worst);
+  // more can be bought with revenue ($50M / $150M / $500M for 1 / 2 / 3).
+  for (let i = 0; i < freeAttempts; i++) {
+    await userAttempt(team, "DEVELOPMENT (" + (i + 1) + " of " + freeAttempts + " free)", devLog);
+  }
+  for (const t in TEAMS) if (t !== team) aiAttempt(t);
+  const COSTS = [[1, 50], [2, 150], [3, 500]];
+  const buyOpts = [{ label: "Skip extra development", value: 0 }]
+    .concat(COSTS.filter(c => wallet[team] >= c[1]).map(c =>
+      ({ label: "Buy " + c[0] + " extra attempt" + (c[0] > 1 ? "s" : "") + " ($" + c[1] + "M)", value: c[0] })));
+  const buy = await choose("OFF-SEASON BUDGET: $" + wallet[team] + "M available (income $" +
+    income[team] + "M + banked).\n\nEach purchase is one more development attempt:", buyOpts);
+  if (buy > 0) {
+    const price = COSTS.filter(c => c[0] === buy)[0][1];
+    wallet[team] -= price;
+    for (let i = 0; i < buy; i++) {
+      await userAttempt(team, "PAID DEVELOPMENT (" + (i + 1) + " of " + buy + ")", devLog);
+    }
+    devLog.push("OFF-SEASON BUDGET: spent $" + price + "M on extra development.");
+  }
+  // AI teams buy what they can afford.
+  for (const t in TEAMS) {
+    if (t === team) continue;
+    const n = wallet[t] >= 500 ? 3 : wallet[t] >= 150 ? 2 : wallet[t] >= 50 ? 1 : 0;
+    for (let i = 0; i < n; i++) aiAttempt(t);
+    wallet[t] -= n === 3 ? 500 : n === 2 ? 150 : n === 1 ? 50 : 0;
+  }
+  // 6. THE DRAFT — worst records pick first; you choose the position.
   const pick = await choose("THE DRAFT — you pick #" + pickNo + " of 32." +
-    (mine.length ? "\nYour needs: " + mine.join(", ") + "." : "") +
-    "\nChoose a position to draft:", posList.map(p => ({ label: p, value: p })));
+    "\nChoose a position to draft:", POS_LIST.map(p => ({ label: p, value: p })));
   const rollVal = rookieRoll();
   const oldVal = TEAMS[team][pick.toLowerCase()];
   TEAMS[team][pick.toLowerCase()] = rollVal;
-  news.push("THE DRAFT: with pick #" + pickNo + " you drafted a " + pick +
-            " rated " + rollVal + " (was " + oldVal + ").");
-  // 4. FREE AGENCY — three free agents on the market, sign one or skip.
+  devLog.push("THE DRAFT: with pick #" + pickNo + " you drafted a " + pick +
+    " rated " + rollVal + " (was " + oldVal + ").");
+  // 7. FREE AGENCY — three free agents on the market, sign one or skip.
   const fas = [];
   for (let i = 0; i < 3; i++) {
-    fas.push({ pos: posList[Math.floor(Math.random() * posList.length)],
+    fas.push({ pos: POS_LIST[Math.floor(Math.random() * POS_LIST.length)],
                rating: Math.min(18, rookieRoll() + 2) });
   }
   const opts = fas.map((f, i) => ({ label: "Sign " + f.pos + " (" + f.rating + ")", value: i }));
@@ -1872,11 +2146,22 @@ async function offseasonMarket(team, pickNo) {
     const f = fas[sign];
     const oldV = TEAMS[team][f.pos.toLowerCase()];
     TEAMS[team][f.pos.toLowerCase()] = f.rating;
-    news.push("FREE AGENCY: you signed a " + f.pos + " rated " + f.rating + " (was " + oldV + ").");
+    devLog.push("FREE AGENCY: you signed a " + f.pos + " rated " + f.rating + " (was " + oldV + ").");
   } else {
-    news.push("FREE AGENCY: you stood pat.");
+    devLog.push("FREE AGENCY: you stood pat.");
   }
-  return news.join("\n");
+  // Bank it: every team keeps wallet = banked revenue + income − spending.
+  for (const t in TEAMS) career.money[t] = Math.max(0, Math.round(wallet[t]));
+  news.push("REVENUE: your markets earned $" + income[team] + "M as a " + tier(team) +
+    " — after the off-season you're banked at $" + career.money[team] + "M.");
+  if (career.stars && Object.keys(career.stars).length) {
+    const lines = POS_LIST.filter(p => career.stars[p]).map(p =>
+      "STAR REPORT: " + (career.starNames[p] || "the star") + " (" + p + ", " +
+      TEAMS[career.stars[p]].abbr + ") reports to camp — " + p + " +2 for the season.");
+    news.push(lines.join("\n"));
+  }
+  await modal("OFFSEASON — AROUND THE LEAGUE\n\n" + news.join("\n\n"));
+  await modal("OFFSEASON — YOUR FRANCHISE\n\n" + devLog.join("\n"));
 }
 
 async function completeSeason(champion) {
@@ -1894,6 +2179,9 @@ async function completeSeason(champion) {
   // on top of that season's fresh rolls.
   const pickNo = 1 + Object.keys(cur.records).filter(n => n !== team &&
     (cur.records[n].W > r.W || (cur.records[n].W === r.W && cur.records[n].PF < r.PF))).length;
+  // Record tiers from the final standings drive the whole off-season: fan
+  // bases, revenue, events for the worst teams, and free development.
+  career.offseason = computeTiers(cur.records);
   career.ratings = exportRatings();
   career.injuries[team] = [];
   career.seasonNumber = seasonNo + 1;
@@ -1971,6 +2259,17 @@ $("#btn-history").onclick = () => {
               chip(it.champion) + it.champion + '</td></tr>';
     }
     html += '</table>';
+  }
+  // Reigning star players: one star per position, stolen on a development 20.
+  career.stars = career.stars || {};
+  career.starNames = career.starNames || {};
+  const starRows = POS_LIST.filter(p => career.stars[p]).map(p =>
+    '<tr><td>' + p + '</td><td class="chip-cell">' + chip(career.stars[p]) + career.stars[p] +
+    '</td><td>' + (career.starNames[p] || "—") + '</td></tr>');
+  if (starRows.length) {
+    html += '<div class="group-label" style="margin-top:10px">LEAGUE STARS</div>' +
+      '<table class="info-table"><tr><th>Pos</th><th>Team</th><th>Star Player</th></tr>' +
+      starRows.join("") + '</table>';
   }
   showInfo(html);
 };
