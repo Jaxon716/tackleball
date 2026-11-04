@@ -189,6 +189,10 @@ class Game {
         { label: "Squib kick", value: "squib", group: "SPECIAL TEAMS" }]);
       await this.pres.ask("You are kicking off. Press KICK to boot it:", [
         { label: "Kick it!", value: "kick", group: "SPECIAL TEAMS" }]);
+    } else if (this.q >= 4 && this.score[receiving.name] > this.score[kicking.name] &&
+               this.score[receiving.name] - this.score[kicking.name] <= 8 &&
+               Math.random() < 0.35) {
+      kickType = "onside"; // desperate for the ball back: surprise onside
     }
     if (kickType === "onside") {
       await this._say("ONSIDE KICK! " + kicking.name + " tries to surprise the coverage.", "event");
@@ -221,7 +225,9 @@ class Game {
         { label: "Return", value: "Return", group: "SPECIAL TEAMS" },
         { label: "Fair catch", value: "Fair catch", group: "SPECIAL TEAMS" }]);
     } else {
-      kind = Math.random() < 0.82 ? "Return" : "Fair catch";
+      // AI return game: bring it out unless pinned deep, where the sure
+      // thing (fair catch / touchback) beats a risky escape.
+      kind = (spot < -6 || (spot >= 0 && spot <= 4)) ? "Fair catch" : "Return";
       await this._say("AI calls: " + kind.toLowerCase() + ".");
     }
     if (kind === "Fair catch") {
@@ -368,6 +374,14 @@ class Game {
       }
       return "Punt";
     }
+    // Goal-to-go: power football near the goal line.
+    if (this.yard >= 95) return Math.random() < 0.6 ? "Run" : "Pass";
+    // Two-minute offense: trailing late, attack through the air.
+    if (this.q >= 4 && this.score[off.name] < this.score[deff.name] &&
+        this.roundInQ <= 36) return pickA(["Pass", "Pass", "Special pass", "Pass"]);
+    // Protecting a lead late: pound the clock.
+    if (this.q >= 4 && this.score[off.name] > this.score[deff.name] &&
+        this.roundInQ >= 34) return pickA(["Run", "Run", "Pass"]);
     if (this.yard >= 82 && this.down <= 3 && Math.random() < 0.16) return "Special pass";
     // 3rd & long: pass almost always. 3rd & short: keep the chains moving.
     if (this.down >= 3 && this.toGo > 7) return pickA(["Pass", "Special pass", "Pass"]);
@@ -405,6 +419,12 @@ class Game {
       return [base.includes("run") ? "run" : "pass", "goal"];
     }
     // AI defensive call: situational but not omniscient about a hidden play.
+    // Short yardage: stack the line and dare them to run.
+    if (this.toGo <= 2) return pickA([["run", "goal"], ["run", "normal"], ["pass", "normal"]]);
+    // Protecting a lead late: squat in coverage and force the underneath game.
+    if (this.q >= 4 && this.score[this.user.name] < this.score[this.ai.name]) {
+      return pickA([["pass", "prevent"], ["pass", "normal"], ["run", "normal"]]);
+    }
     if (this.yard >= 85) return pickA([["pass", "goal"], ["run", "goal"], ["pass", "normal"]]);
     if (this.toGo >= 8) return pickA([["pass", "normal"], ["pass", "blitz"], ["run", "normal"]]);
     return pickA([["run", "normal"], ["pass", "normal"], ["run", "blitz"], ["pass", "prevent"]]);
@@ -961,7 +981,8 @@ class Game {
           { label: "Return", value: "Return", group: "SPECIAL TEAMS" },
           { label: "Fair catch", value: "Fair catch", group: "SPECIAL TEAMS" }]);
       } else {
-        choice = Math.random() < 0.5 ? "Return" : "Fair catch";
+        // Too deep to risk the escape: take the touchback.
+        choice = deep > 6 ? "Fair catch" : "Return";
         await this._say("AI calls: " + choice.toLowerCase() + ".");
       }
       if (choice === "Fair catch") {
@@ -1000,7 +1021,9 @@ class Game {
         { label: "Return", value: "Return", group: "SPECIAL TEAMS" },
         { label: "Fair catch", value: "Fair catch", group: "SPECIAL TEAMS" }]);
     } else {
-      choice = Math.random() < 0.7 ? "Return" : "Fair catch";
+      // Fair catch when pinned inside the 5 — field position beats a
+      // risky return.
+      choice = receivingYard <= 4 ? "Fair catch" : "Return";
       await this._say("AI calls: " + choice.toLowerCase() + ".");
     }
     if (choice === "Fair catch") {

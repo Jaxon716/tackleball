@@ -126,6 +126,8 @@ function animateBall(from, to, ms, yOffNorm, meta) {
   return new Promise(res => {
     const dur = ms || Math.min(2400, 800 + Math.abs(to - from) * 40);
     ballAnim.active = true;
+    FIELD.returnerHold = null;
+    FIELD.ballY = null;
     ballAnim.from = from; ballAnim.to = to;
     ballAnim.yOff = yOffNorm || 0;
     ballAnim.start = Date.now(); ballAnim.dur = dur;
@@ -423,7 +425,16 @@ function animateBall(from, to, ms, yOffNorm, meta) {
           })),
       };
     }
-    setTimeout(() => { ballAnim.active = false; ballAnim.anim = null; FIELD.ball = to; res(); }, dur);
+    setTimeout(() => {
+      const fin = ballAnim.anim;
+      ballAnim.active = false; ballAnim.anim = null; FIELD.ball = to; res();
+      // After a kick, pin the returner's helmet to the landing spot — he
+      // stands exactly where the ball is while you decide fair catch or return.
+      if (fin && fin.kind === "kick" && fin.drift) {
+        FIELD.returnerHold = { side: fin.drift.side, idx: fin.drift.idx, pt: fin.drift.to };
+        FIELD.ballY = fin.drift.to[1];
+      }
+    }, dur);
   });
 }
 
@@ -811,6 +822,9 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
         const over = A.drift.side === "def" ? overDef : overOff;
         over[A.drift.idx] = curvePos(A.drift.from, A.drift.to, tC, 0);
       }
+    } else if (FIELD.returnerHold) {
+      // No play running: the returner stands exactly where he caught the kick.
+      (FIELD.returnerHold.side === "off" ? overOff : overDef)[FIELD.returnerHold.idx] = FIELD.returnerHold.pt;
     }
     const drawSquad = (players, team, facing, overrides) => {
       players.forEach((p, i) => {
@@ -876,7 +890,11 @@ if (FIELD.off && FIELD.left && FIELD.right && FIELD.formation) {
       by = ht / 2 + ballAnim.yOff * ht * e;
     }
   }
-  if (bx == null) { bx = X(FIELD.ball); by = ht / 2; ballAngle = 0; lastBallPt = null; }
+  if (bx == null) {
+    bx = X(FIELD.ball);
+    by = (FIELD.ballY != null ? FIELD.ballY : ht / 2);
+    ballAngle = 0; lastBallPt = null;
+  }
   bx = Math.max(8, Math.min(w - 8, bx));
   // The ball points where it's going — spiral on a throw, tucked on a run.
   if (lastBallPt) {
@@ -1203,6 +1221,9 @@ const pres = {
       def: FORMATIONS.def[defType] || FORMATIONS.def.run,
     };
     FIELD.offForm = offType;
+    // A new alignment means a new play — the returner re-lines up too.
+    FIELD.returnerHold = null;
+    FIELD.ballY = null;
     sfx("whistle");
   },
   setField(los, firstDown, ball) {
