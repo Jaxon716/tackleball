@@ -225,9 +225,14 @@ class Game {
         { label: "Return", value: "Return", group: "SPECIAL TEAMS" },
         { label: "Fair catch", value: "Fair catch", group: "SPECIAL TEAMS" }]);
     } else {
-      // AI return game: bring it out unless pinned deep, where the sure
-      // thing (fair catch / touchback) beats a risky escape.
-      kind = (spot < -6 || (spot >= 0 && spot <= 4)) ? "Fair catch" : "Return";
+      // Football-smart return game:
+      // - A kick landing in the field of play is ALWAYS brought out —
+      //   fair-catching a kickoff at your own 4 throws away free yardage.
+      // - Deep in the end zone, the smart play is the touchback (no risk)
+      //   when protecting a lead late, or when it's buried at the back line.
+      const diff = this.score[receiving.name] - this.score[kicking.name];
+      const protecting = diff > 0 && this.q >= 4;
+      kind = (spot < 0 && (protecting || spot <= -7)) ? "Fair catch" : "Return";
       await this._say("AI calls: " + kind.toLowerCase() + ".");
     }
     if (kind === "Fair catch") {
@@ -259,7 +264,10 @@ class Game {
       await this._say(receiving.name + " return: " + gain + " yards (" + rollText(rolls) +
                       ") — to their own " + Math.min(99, end) + ".");
       receiving.stats.stYards += gain;
-      if (Math.floor(Math.random() * 20) === 0) {
+      // Football-smart fumble risk: elite return games hold onto the ball;
+      // weaker ones put it on the ground.
+      const rq = Math.max(0, Math.min(6, Math.round((receiving.b("WR") + receiving.b("DB")) / 2)));
+      if (Math.random() < 0.08 - 0.01 * rq) {
         await this._say("Kickoff return FUMBLE! Resolved at the midpoint of the return.", "turnover");
         await this.pres.banner("FUMBLE!", "bad", 900);
         receiving.stats.fumbles++;
@@ -1021,8 +1029,14 @@ class Game {
           { label: "Return", value: "Return", group: "SPECIAL TEAMS" },
           { label: "Fair catch", value: "Fair catch", group: "SPECIAL TEAMS" }]);
       } else {
-        // Too deep to risk the escape: take the touchback.
-        choice = deep > 6 ? "Fair catch" : "Return";
+        // Football-smart punt decisions, end-zone edition:
+        // - desperate (trailing late): bring everything out for chunk plays
+        // - protecting a lead late: take the sure touchback on deep punts
+        // - otherwise: depth rules (deep punts = touchback, shallow = return)
+        const diff = this.score[deff.name] - this.score[off.name];
+        if (diff < 0 && this.q >= 4) choice = "Return";
+        else if (diff > 0 && this.q >= 4) choice = deep > 3 ? "Fair catch" : "Return";
+        else choice = deep > 6 ? "Fair catch" : "Return";
         await this._say("AI calls: " + choice.toLowerCase() + ".");
       }
       if (choice === "Fair catch") {
@@ -1061,9 +1075,14 @@ class Game {
         { label: "Return", value: "Return", group: "SPECIAL TEAMS" },
         { label: "Fair catch", value: "Fair catch", group: "SPECIAL TEAMS" }]);
     } else {
-      // Fair catch when pinned inside the 5 — field position beats a
-      // risky return.
-      choice = receivingYard <= 4 ? "Fair catch" : "Return";
+      // Football-smart punt return calls:
+      // - trailing late: always return (need chunk plays, no safe option)
+      // - protecting a lead late: fair-catch when pinned, return in space
+      // - otherwise: return unless pinned inside the 4
+      const diff = this.score[deff.name] - this.score[off.name];
+      if (diff < 0 && this.q >= 4) choice = "Return";
+      else if (diff > 0 && this.q >= 4) choice = receivingYard <= 10 ? "Fair catch" : "Return";
+      else choice = receivingYard <= 4 ? "Fair catch" : "Return";
       await this._say("AI calls: " + choice.toLowerCase() + ".");
     }
     if (choice === "Fair catch") {
