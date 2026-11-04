@@ -212,7 +212,7 @@ class Game {
     const dist = this.kickDistance(kickType === "squib" ? Math.max(2, k) : k, 65);
     const spot = 65 - dist; // receiving-relative spot (negative = deep in the end zone)
     await this._say("The kick travels " + dist + " yards (" + rollText(krolls) + ").", "dice");
-    await this.pres.moveBall(this.absOf(receiving, 65), this.absOf(receiving, Math.max(-9, spot)), 900, undefined, { kind: "kick", side: "def" });
+    await this.pres.moveBall(this.absOf(receiving, 65), this.absOf(receiving, Math.max(-10, spot)), 900, undefined, { kind: "kick", side: "def" });
     if (spot < 0) {
       await this._say("The kick is caught " + Math.abs(spot) + " yards deep in the end zone.");
     } else {
@@ -1020,7 +1020,18 @@ class Game {
     await this._say("PUNT: " + off.name + " punt " + dist + " yards (" + rollText(rs) + ").", "event");
     const landing = Math.min(100, this.yard + dist);
     const deep = this.yard + dist - 100;
-    await this.pres.moveBall(this.absOf(off, this.yard), this.absOf(off, landing + Math.max(0, deep)), 800, undefined, { kind: "kick", side: "off" });
+    // The ball can't fly past the back wall of the end zone — the animation
+    // stops at the end-zone back line even on a boom.
+    await this.pres.moveBall(this.absOf(off, this.yard), this.absOf(off, Math.min(this.yard + dist, 110)), 800, undefined, { kind: "kick", side: "off" });
+    if (deep > 10) {
+      // NFL rule: a punt that sails THROUGH the back of the end zone is an
+      // automatic touchback — no return, no choice. Ball at the receiving
+      // team's 20.
+      await this._say("The punt sails THROUGH the back of the end zone — TOUCHBACK. " + deff.name + " take over at their own 20.", "event");
+      await this.pres.banner("TOUCHBACK", "neutral", 1000);
+      await this.setDrive(deff, off, 20);
+      return;
+    }
     if (deep > 0) {
       await this._say("The punt is caught " + deep + " yards deep in the end zone.");
       let choice;
