@@ -75,3 +75,57 @@ const RUN_SPECIALS = {
   "Statue of Liberty":   [10, "4d6", true],
   "Sweep":               [8,  "3d6", false],
 };
+
+// Real NFL roster names — the marquee player for each team at each of the
+// game's six positions. Player names are public facts, so a fan adaptation
+// can use them (unlike team logos). These are best-effort current starters:
+// to update one after a trade or signing, just change the name here.
+// LM = defensive line (edge or interior), DB = corner or safety.
+const PLAYER_NAMES = {
+  // AFC East
+  "Buffalo Bills":            { QB: "Josh Allen", RB: "James Cook", WR: "Khalil Shakir", LM: "Greg Rousseau", LB: "Terrel Bernard", DB: "Taron Johnson" },
+  "Miami Dolphins":           { QB: "Tua Tagovailoa", RB: "De'Von Achane", WR: "Tyreek Hill", LM: "Zach Sieler", LB: "Jordyn Brooks", DB: "Jevon Holland" },
+  "New England Patriots":     { QB: "Drake Maye", RB: "Rhamondre Stevenson", WR: "DeMario Douglas", LM: "Keion White", LB: "Ja'Whaun Bentley", DB: "Kyle Dugger" },
+  "New York Jets":            { QB: "Aaron Rodgers", RB: "Breece Hall", WR: "Garrett Wilson", LM: "Quinnen Williams", LB: "C.J. Mosley", DB: "Sauce Gardner" },
+  // AFC North
+  "Baltimore Ravens":         { QB: "Lamar Jackson", RB: "Derrick Henry", WR: "Zay Flowers", LM: "Nnamdi Madubuike", LB: "Roquan Smith", DB: "Kyle Hamilton" },
+  "Cincinnati Bengals":       { QB: "Joe Burrow", RB: "Chase Brown", WR: "Ja'Marr Chase", LM: "B.J. Hill", LB: "Logan Wilson", DB: "Cam Taylor-Britt" },
+  "Cleveland Browns":         { QB: "Deshaun Watson", RB: "Nick Chubb", WR: "Jerry Jeudy", LM: "Myles Garrett", LB: "Jeremiah Owusu-Koramoah", DB: "Denzel Ward" },
+  "Pittsburgh Steelers":      { QB: "Russell Wilson", RB: "Jaylen Warren", WR: "George Pickens", LM: "Cameron Heyward", LB: "T.J. Watt", DB: "Minkah Fitzpatrick" },
+  // AFC South
+  "Houston Texans":           { QB: "C.J. Stroud", RB: "Joe Mixon", WR: "Nico Collins", LM: "Will Anderson Jr.", LB: "Azeez Al-Shaair", DB: "Derek Stingley Jr." },
+  "Indianapolis Colts":       { QB: "Anthony Richardson", RB: "Jonathan Taylor", WR: "Michael Pittman Jr.", LM: "DeForest Buckner", LB: "Zaire Franklin", DB: "Julian Blackmon" },
+  "Jacksonville Jaguars":     { QB: "Trevor Lawrence", RB: "Travis Etienne Jr.", WR: "Brian Thomas Jr.", LM: "Josh Hines-Allen", LB: "Foyesade Oluokun", DB: "Tyson Campbell" },
+  "Tennessee Titans":         { QB: "Will Levis", RB: "Tony Pollard", WR: "Calvin Ridley", LM: "Jeffery Simmons", LB: "Kenneth Murray Jr.", DB: "Amani Hooker" },
+  // AFC West
+  "Denver Broncos":           { QB: "Bo Nix", RB: "Javonte Williams", WR: "Courtland Sutton", LM: "Zach Allen", LB: "Dre Greenlaw", DB: "Pat Surtain II" },
+  "Kansas City Chiefs":       { QB: "Patrick Mahomes", RB: "Isiah Pacheco", WR: "Rashee Rice", LM: "Chris Jones", LB: "Nick Bolton", DB: "Trent McDuffie" },
+  "Las Vegas Raiders":        { QB: "Aidan O'Connell", RB: "Zamir White", WR: "Jakobi Meyers", LM: "Maxx Crosby", LB: "Robert Spillane", DB: "Tre'von Moehrig" },
+  "Los Angeles Chargers":     { QB: "Justin Herbert", RB: "J.K. Dobbins", WR: "Ladd McConkey", LM: "Khalil Mack", LB: "Denzel Perryman", DB: "Derwin James" },
+  // NFC East
+  "Dallas Cowboys":           { QB: "Dak Prescott", RB: "Rico Dowdle", WR: "CeeDee Lamb", LM: "Osa Odighizuwa", LB: "Eric Kendricks", DB: "DaRon Bland" },
+  "New York Giants":          { QB: "Daniel Jones", RB: "Devin Singletary", WR: "Malik Nabers", LM: "Dexter Lawrence", LB: "Bobby Okereke", DB: "Tyler Nubin" },
+  "Philadelphia Eagles":      { QB: "Jalen Hurts", RB: "Saquon Barkley", WR: "A.J. Brown", LM: "Jalen Carter", LB: "Zack Baun", DB: "Cooper DeJean" },
+  "Washington Commanders":    { QB: "Jayden Daniels", RB: "Brian Robinson Jr.", WR: "Terry McLaurin", LM: "Daron Payne", LB: "Bobby Wagner", DB: "Mike Sainristil" },
+  // NFC North
+  "Chicago Bears":            { QB: "Caleb Williams", RB: "D'Andre Swift", WR: "DJ Moore", LM: "Montez Sweat", LB: "Tremaine Edmunds", DB: "Jaquan Brisker" },
+  "Detroit Lions":            { QB: "Jared Goff", RB: "Jahmyr Gibbs", WR: "Amon-Ra St. Brown", LM: "Aidan Hutchinson", LB: "Jack Campbell", DB: "Kerby Joseph" },
+  "Green Bay Packers":        { QB: "Jordan Love", RB: "Josh Jacobs", WR: "Jayden Reed", LM: "Rashan Gary", LB: "Quay Walker", DB: "Xavier McKinney" },
+  "Minnesota Vikings":        { QB: "Sam Darnold", RB: "Aaron Jones", WR: "Justin Jefferson", LM: "Jonathan Greenard", LB: "Blake Cashman", DB: "Harrison Smith" },
+  // NFC South
+  "Atlanta Falcons":          { QB: "Kirk Cousins", RB: "Bijan Robinson", WR: "Drake London", LM: "Grady Jarrett", LB: "Kaden Elliss", DB: "Jessie Bates III" },
+  "Carolina Panthers":        { QB: "Bryce Young", RB: "Chuba Hubbard", WR: "Adam Thielen", LM: "Derrick Brown", LB: "Shaq Thompson", DB: "Jaycee Horn" },
+  "New Orleans Saints":       { QB: "Derek Carr", RB: "Alvin Kamara", WR: "Chris Olave", LM: "Chase Young", LB: "Demario Davis", DB: "Paulson Adebo" },
+  "Tampa Bay Buccaneers":     { QB: "Baker Mayfield", RB: "Bucky Irving", WR: "Mike Evans", LM: "Vita Vea", LB: "Lavonte David", DB: "Antoine Winfield Jr." },
+  // NFC West
+  "Arizona Cardinals":        { QB: "Kyler Murray", RB: "James Conner", WR: "Marvin Harrison Jr.", LM: "Dante Stills", LB: "Kyzir White", DB: "Budda Baker" },
+  "Los Angeles Rams":         { QB: "Matthew Stafford", RB: "Kyren Williams", WR: "Puka Nacua", LM: "Kobie Turner", LB: "Ernest Jones IV", DB: "Kam Curl" },
+  "San Francisco 49ers":      { QB: "Brock Purdy", RB: "Christian McCaffrey", WR: "Deebo Samuel", LM: "Nick Bosa", LB: "Fred Warner", DB: "Talanoa Hufanga" },
+  "Seattle Seahawks":         { QB: "Geno Smith", RB: "Kenneth Walker III", WR: "DK Metcalf", LM: "Leonard Williams", LB: "Tyrel Dodson", DB: "Riq Woolen" },
+};
+
+// The real roster name for a team at a position, or null.
+function rosterName(team, pos) {
+  const r = PLAYER_NAMES[team];
+  return r && r[pos] ? r[pos] : null;
+}

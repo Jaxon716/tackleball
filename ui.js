@@ -1096,7 +1096,8 @@ function statRowsHtml(game) {
         const carried = (t.seasonInjuries || []).includes(k) && M;
         if (m) parts.push("minor ×" + m + " (rest of game)");
         if (M) parts.push("major ×" + M + " (rest of season" + (carried ? ", injured earlier this season" : "") + ")");
-        return parts.join(", ") + " — modifier −" + (m + M);
+        const nm = rosterName(t.name, k);
+        return (nm ? nm + " — " : "") + parts.join(", ") + " — modifier −" + (m + M);
       };
       h += row(k + " injured", cell(uTeam), cell(aTeam));
     }
@@ -1141,6 +1142,8 @@ function posCell(t, k) {
   else if (t.minorInjuries.indexOf(P) >= 0) s += ' <span style="color:#ffd77a">banged up</span>';
   career.stars = career.stars || {};
   if (career.stars[P] === t.name) s += ' <span style="color:#ffd400">★ STAR</span>';
+  const nm = rosterName(t.name, P);
+  if (nm) s += ' <span class="muted">' + nm.split(" ").pop() + '</span>';
   return s;
 }
 function recordCell(n) {
@@ -2082,7 +2085,10 @@ function starFlow(team, pos, log) {
   career.stars = career.stars || {};
   career.starNames = career.starNames || {};
   const prev = career.stars[pos];
-  const name = starName();
+  // Real roster names: a new star signs as the team's actual player at that
+  // position; a stolen or re-signed star keeps his name — same guy, new team.
+  const name = prev ? (career.starNames[pos] || starName())
+    : (rosterName(team, pos) || starName());
   const before = TEAMS[team][key];
   let line;
   if (prev && prev !== team) {

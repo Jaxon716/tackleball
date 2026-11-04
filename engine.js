@@ -808,8 +808,9 @@ class Game {
       team.minorInjuries.push(stat);
       team.stats.injuries++;
       await this._say("Injury roll: 1d6 = " + inj + " → " + stat + " injured.", "penalty");
-            await this.pres.banner("INJURY: " + team.abbr + " " + stat + " DOWN", "injury", 1300);
-      await this._say("Minor injury: " + team.name + " " + stat + " is reduced for the rest of this game.", "penalty");
+            const nm = rosterName(team.name, stat);
+            await this.pres.banner("INJURY: " + team.abbr + " " + stat + (nm ? " (" + nm + ")" : "") + " DOWN", "injury", 1300);
+      await this._say("Minor injury: " + team.name + " " + (nm ? nm : stat) + " is reduced for the rest of this game.", "penalty");
       return;
     }
     if (total === 12) {
@@ -819,8 +820,9 @@ class Game {
       team.majorInjuries.push(stat);
       team.stats.injuries++;
       await this._say("Injury roll: 1d6 = " + inj + " → " + stat + " injured.", "penalty");
-      await this.pres.banner("MAJOR INJURY: " + team.abbr + " " + stat, "injury", 1400);
-      await this._say("Major injury: " + team.name + " " + stat + " is reduced for the remainder of the season.", "penalty");
+      const nm = rosterName(team.name, stat);
+      await this.pres.banner("MAJOR INJURY: " + team.abbr + " " + stat + (nm ? " (" + nm + ")" : ""), "injury", 1400);
+      await this._say("Major injury: " + team.name + " " + (nm ? nm : stat) + " is reduced for the remainder of the season.", "penalty");
       return;
     }
     let foul;
