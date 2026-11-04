@@ -1387,7 +1387,13 @@ $("#btn-exhibition").onclick = () => {
 };
 
 async function startExhibition(user, opp) {
-  const score = await launchGame(user, opp, true);
+  // Home or away is your call: it changes the action dice (4 vs 3) and
+  // which end zone you defend.
+  const userHome = await choose("EXHIBITION: " + TEAMS[user].abbr + " vs " + TEAMS[opp].abbr +
+    " — where are you playing?", [
+    { label: "HOME game — your stadium, 4 action dice", value: true },
+    { label: "AWAY game — their stadium, 3 action dice", value: false }]);
+  await launchGame(user, opp, userHome);
   renderTitle();
   showScreen("screen-title");
 }
