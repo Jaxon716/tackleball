@@ -350,7 +350,24 @@ class Game {
     else await this.scrimmagePlay(off, deff, "run");
   }
 
+  // Every team has an identity, read straight off its roster — and it
+  // shifts live when players go down. The AI calls plays the way THIS
+  // team plays: pass-happy with elite QB/WR, run-first behind a great
+  // back and line, blitz-happy with linebackers and corners, and the
+  // more talent on the field, the more aggressive the decisions get.
+  teamStyle(t) {
+    const qb = t.b("QB"), rb = t.b("RB"), wr = t.b("WR"),
+          lm = t.b("LM"), lb = t.b("LB"), db = t.b("DB");
+    return {
+      passLean: ((qb + wr) - (rb + lm)) / 6,   // >0: throw it all day
+      runDLean: (lm + lb - db) / 6,            // >0: stout front, stuff the run
+      blitzLean: (lb + db) / 12,               // >0: send extra rushers
+      agg: (qb + wr + rb + lm + lb + db) / 36, // talent = aggression
+    };
+  }
+
   aiChoosePlay(off, deff) {
+    const style = this.teamStyle(off);
     if (this.down === 4) {
       const fgDist = 117 - this.yard;
       const diff = this.score[off.name] - this.score[deff.name];
@@ -360,6 +377,11 @@ class Game {
       // unless the game situation demands it.
       if (fgDist <= 45 && !hopeless) return "Field goal";
       if (fgDist <= 52 && !hopeless && Math.random() < 0.8) return "Field goal";
+      // Elite teams play to win: outside long-FG range they take a smart
+      // shot on 4th-and-manageable instead of always kicking.
+      if (style.agg >= 0.65 && fgDist > 52 && this.toGo <= 6 && Math.random() < 0.45) {
+        return Math.random() < 0.6 ? "Pass" : "Run";
+      }
       // Fourth-and-short at or past midfield: take the points on the board.
       if (this.toGo <= 2 && this.yard >= 45) return Math.random() < 0.7 ? "Run" : "Pass";
       // Desperate and short: keep the drive alive.
@@ -369,7 +391,7 @@ class Game {
       // Occasionally the AI runs a fake kick instead of the punt — risky
       // per the book (the first try needs 1d6 of 4+), so only each team's
       // first fake of the game.
-      if (!this.fakeUses[off.name] && fgDist > 52 && Math.random() < 0.12) {
+      if (!this.fakeUses[off.name] && fgDist > 52 && Math.random() < 0.08 + 0.08 * style.agg) {
         return Math.random() < 0.3 ? "Fake field goal" : "Fake punt";
       }
       return "Punt";
@@ -383,12 +405,20 @@ class Game {
     if (this.q >= 4 && this.score[off.name] > this.score[deff.name] &&
         this.roundInQ >= 34) return pickA(["Run", "Run", "Pass"]);
     if (this.yard >= 82 && this.down <= 3 && Math.random() < 0.16) return "Special pass";
-    // 3rd & long: pass almost always. 3rd & short: keep the chains moving.
-    if (this.down >= 3 && this.toGo > 7) return pickA(["Pass", "Special pass", "Pass"]);
-    if (this.down >= 3 && this.toGo <= 2) return pickA(["Run", "Run", "Pass"]);
-    if (off.b("QB") + off.b("WR") >= off.b("RB") + off.b("QB"))
-      return pickA(["Pass", "Pass", "Run", "Special pass"]);
-    return pickA(["Run", "Run", "Pass", "Special run"]);
+    // 3rd & long: throw it — but an air-raid team takes deep shots.
+    if (this.down >= 3 && this.toGo > 7) {
+      return style.passLean >= 0.5 ? pickA(["Special pass", "Pass", "Pass"]) : pickA(["Pass", "Special pass", "Pass"]);
+    }
+    // 3rd & short: identity decides — a run team pounds it, a pass team keeps slinging.
+    if (this.down >= 3 && this.toGo <= 2) {
+      return style.passLean >= 0.3 ? pickA(["Pass", "Pass", "Run"]) : pickA(["Run", "Run", "Pass"]);
+    }
+    // Team identity: play like THIS team plays, on EVERY down.
+    if (style.passLean >= 0.5) return pickA(["Pass", "Pass", "Pass", "Special pass"]);
+    if (style.passLean >= 0.15) return pickA(["Pass", "Pass", "Run", "Special pass"]);
+    if (style.passLean <= -0.5) return pickA(["Run", "Run", "Run", "Special run"]);
+    if (style.passLean <= -0.15) return pickA(["Run", "Run", "Pass", "Special run"]);
+    return pickA(["Run", "Pass", "Run", "Special pass"]);
   }
 
   async aiDefense(kind, special) {
@@ -427,6 +457,16 @@ class Game {
     }
     if (this.yard >= 85) return pickA([["pass", "goal"], ["run", "goal"], ["pass", "normal"]]);
     if (this.toGo >= 8) return pickA([["pass", "normal"], ["pass", "blitz"], ["run", "normal"]]);
+    // Team identity: this defense plays the way ITS personnel plays.
+    const style = this.teamStyle(this.ai);
+    if (style.blitzLean >= 0.65) {
+      // Ball-hawking, pressure defense: send extra rushers and play tight.
+      return pickA([["pass", "blitz"], ["pass", "blitz"], ["run", "blitz"], ["pass", "normal"]]);
+    }
+    if (style.runDLean >= 0.5) {
+      // Stout front: stuff the run first and make them beat the corner.
+      return pickA([["run", "normal"], ["run", "blitz"], ["pass", "normal"], ["pass", "prevent"]]);
+    }
     return pickA([["run", "normal"], ["pass", "normal"], ["run", "blitz"], ["pass", "prevent"]]);
   }
 
