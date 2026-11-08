@@ -1654,24 +1654,41 @@ async function teamCreation(team, offseasonPick) {
 function renderSeasonHub() {
   cur = career.current;
   const r = cur.records[cur.userTeam];
+  // The season's length comes from its schedule: the real 2026 slate is 18
+  // weeks with one bye per team, a generated season is 17.
+  const totalWeeks = (cur.schedule || []).length || 17;
+  const weekGames = cur.schedule[cur.week] || [];
+  const myGame = cur.week < totalWeeks
+    ? weekGames.find(g => g[0] === cur.userTeam || g[1] === cur.userTeam) || null
+    : null;
+  const onBye = cur.week < totalWeeks && !myGame;
   $("#season-head").innerHTML =
     '<div class="sh-line">YEAR ' + (career.year || 1) + ' OF 5 · SEASON ' + cur.seasonNumber + ' — ' + cur.userTeam + '</div>' +
     '<div class="sh-record">YOUR SEASON: ' + r.W + '-' + r.L + '-' + r.T + ' · PF ' + r.PF + ' · PA ' + r.PA +
     ' · BANKED $' + ((career.money && career.money[cur.userTeam]) || 0) + 'M</div>' +
     ((career.injuries[cur.userTeam] || []).length ?
       '<div class="sh-record" style="color:#ff8f8f">SEASON INJURIES: ' + career.injuries[cur.userTeam].join(", ") + '</div>' : '') +
-    '<div class="sh-week">' + (cur.week < 17 ? "WEEK " + (cur.week + 1) + " OF 17" : "REGULAR SEASON COMPLETE") + '</div>';
+    (cur.scheduleLabel ? '<div class="sh-record">' + cur.scheduleLabel + '</div>' : '') +
+    '<div class="sh-week">' + (cur.week < totalWeeks
+      ? "WEEK " + (cur.week + 1) + " OF " + totalWeeks + (onBye ? " · BYE WEEK" : "")
+      : "REGULAR SEASON COMPLETE") + '</div>';
   const body = $("#season-body");
   body.innerHTML = "";
-  if (cur.week < 17) {
+  if (cur.week < totalWeeks) {
     const box = h("div", null);
     box.appendChild(h("div", "group-label", "WEEK " + (cur.week + 1) + " MATCHUPS"));
-    for (const g of cur.schedule[cur.week]) {
+    for (const g of weekGames) {
       const mine = g[0] === cur.userTeam || g[1] === cur.userTeam;
       box.appendChild(h("div", "match-line", g[1] + " at " + g[0] + (mine ? "  —  YOUR GAME" : "")));
     }
+    if (onBye) {
+      box.appendChild(h("div", "match-line", "Your " + TEAMS[cur.userTeam].abbr +
+        " are on a bye this week — the rest of the league plays on."));
+    }
     body.appendChild(box);
-    const btn = h("button", "menu-btn", "Play Week " + (cur.week + 1));
+    const btn = h("button", "menu-btn", onBye
+      ? "Advance Through Bye Week " + (cur.week + 1)
+      : "Play Week " + (cur.week + 1));
     btn.onclick = playWeek;
     body.appendChild(btn);
   } else {
@@ -1712,10 +1729,16 @@ $("#btn-season").onclick = async () => {
       // The draft order was set by last season's record (stored at season end).
       await teamCreation(team, career.draftPick || 17);
     }
+    // Season 1 plays the real 2026 NFL slate (18 weeks, each team one bye);
+    // from the second season on, the game schedules the league itself.
+    const nflSlate = career.seasonNumber === 1;
+    const schedule = nflSlate ? nfl2026Schedule() : generateSchedule();
     career.current = {
       userTeam: team,
       seasonNumber: career.seasonNumber,
-      schedule: generateSchedule(),
+      schedule,
+      scheduleLabel: (nflSlate ? "2026 NFL SCHEDULE" : "GENERATED SCHEDULE") +
+        " · " + schedule.length + " WEEKS" + (nflSlate ? " · ONE BYE EACH" : ""),
       records: emptyRecords(),
       week: 0,
       results: [],
@@ -1790,6 +1813,8 @@ function recapText(wi, games, injNews) {
 async function playWeek() {
   const wi = cur.week;
   const myTeam = cur.userTeam;
+  const weekGames = cur.schedule[wi] || [];
+  const myGame = weekGames.find(g => g[0] === myTeam || g[1] === myTeam) || null;
   // Snapshot so quitting mid-week — in-game or by closing the app — never
   // double-counts: standings, this week's results AND the career W/L tally
   // all roll back together, so a replayed week counts your wins and losses
@@ -1814,8 +1839,8 @@ async function playWeek() {
   // The rest of the league plays FIRST — check the scores and injury
   // report before taking the field, like the NFL's weekly news show.
   const otherGames = [], injNews = [];
-  for (const g of cur.schedule[wi]) {
-    const home = g[0], away = g[1];
+  for (const g of weekGames) {
+    const home = g[0]; const away = g[1];
     if (home === myTeam || away === myTeam) continue;
     const s = quickLeagueGame(home, away);
     const hs = s[home], as = s[away];
@@ -1827,11 +1852,12 @@ async function playWeek() {
   }
   if (otherGames.length) {
     saveCareer();
-    await modal(recapText(wi, otherGames, injNews));
+    await modal(recapText(wi, otherGames, injNews) +
+      (myGame ? "" : "\n\nBYE WEEK — the " + TEAMS[myTeam].abbr +
+        " are off. The league plays on without you."));
   }
-  for (const g of cur.schedule[wi]) {
-    const home = g[0], away = g[1];
-    if (home !== myTeam && away !== myTeam) continue;
+  if (myGame) {
+    const home = myGame[0]; const away = myGame[1];
     const userTeam = home === myTeam ? home : away;
     const aiTeam = userTeam === home ? away : home;
     const seasonInj = (career.injuries[myTeam] || []).slice();
@@ -1863,7 +1889,9 @@ async function playWeek() {
   saveCareer();
   renderSeasonHub();
   showScreen("screen-season");
-  await modal("Week " + (wi + 1) + " complete.\nYour record: " +
+  await modal("Week " + (wi + 1) + " complete." +
+    (myGame ? "" : "\nBye week — the " + TEAMS[myTeam].abbr + " were off.") +
+    "\nYour record: " +
     cur.records[cur.userTeam].W + "-" + cur.records[cur.userTeam].L + "-" + cur.records[cur.userTeam].T + ".");
 }
 

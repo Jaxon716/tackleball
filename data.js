@@ -129,3 +129,89 @@ function rosterName(team, pos) {
   const r = PLAYER_NAMES[team];
   return r && r[pos] ? r[pos] : null;
 }
+
+// The real 2026 NFL regular-season schedule: 18 weeks, 272 games, every team
+// playing 17 games with exactly one bye week. Each week lists its games as
+// [home, away] team abbreviations. A career's first season plays this slate;
+// every season after it is scheduled by the game itself (generateSchedule).
+const NFL_2026_SCHEDULE = [
+  // Week 1
+  [["SEA","NE"],["LAR","SF"],["CIN","TB"],["DET","NO"],["TEN","NYJ"],["IND","BAL"],
+   ["PIT","ATL"],["CAR","CHI"],["JAX","CLE"],["HOU","BUF"],["LV","MIA"],["MIN","GB"],
+   ["PHI","WAS"],["LAC","ARI"],["NYG","DAL"],["KC","DEN"]],
+  // Week 2
+  [["BUF","DET"],["ATL","CAR"],["CHI","MIN"],["TEN","PHI"],["NE","PIT"],["NYJ","GB"],
+   ["TB","CLE"],["BAL","NO"],["HOU","CIN"],["DEN","JAX"],["LAC","LV"],["DAL","WAS"],
+   ["ARI","SEA"],["SF","MIA"],["KC","IND"],["LAR","NYG"]],
+  // Week 3
+  [["GB","ATL"],["BUF","LAC"],["CLE","CAR"],["DET","NYJ"],["IND","HOU"],["MIA","KC"],
+   ["NYG","TEN"],["PIT","CIN"],["WAS","SEA"],["JAX","NE"],["SF","ARI"],["TB","MIN"],
+   ["DAL","BAL"],["NO","LV"],["DEN","LAR"],["CHI","PHI"]],
+  // Week 4
+  [["CLE","PIT"],["WAS","IND"],["BUF","NE"],["CHI","NYJ"],["CIN","JAX"],["NYG","ARI"],
+   ["PHI","LAR"],["TB","GB"],["BAL","TEN"],["HOU","DAL"],["MIN","MIA"],["LV","KC"],
+   ["SF","DEN"],["SEA","LAC"],["CAR","DET"],["NO","ATL"]],
+  // Week 5
+  [["DAL","TB"],["JAX","PHI"],["GB","CHI"],["TEN","HOU"],["MIA","CIN"],["NE","LV"],
+   ["NO","MIN"],["NYJ","CLE"],["PIT","IND"],["WAS","NYG"],["LAC","DEN"],["ARI","DET"],
+   ["SEA","SF"],["ATL","BAL"],["LAR","BUF"]],
+  // Week 6
+  [["DEN","SEA"],["JAX","HOU"],["ATL","CHI"],["CLE","BAL"],["IND","TEN"],["NE","NYJ"],
+   ["NYG","NO"],["PHI","CAR"],["TB","PIT"],["LAR","ARI"],["KC","LAC"],["LV","BUF"],
+   ["GB","DAL"],["SF","WAS"]],
+  // Week 7
+  [["CHI","NE"],["NO","PIT"],["ATL","SF"],["TEN","CLE"],["MIN","IND"],["NYJ","MIA"],
+   ["CAR","TB"],["BAL","CIN"],["HOU","NYG"],["ARI","DEN"],["DET","GB"],["LV","LAR"],
+   ["SEA","KC"],["PHI","DAL"]],
+  // Week 8
+  [["GB","CAR"],["BUF","BAL"],["CIN","TEN"],["DAL","ARI"],["DET","MIN"],["NYJ","LV"],
+   ["PIT","CLE"],["TB","ATL"],["JAX","IND"],["LAR","LAC"],["DEN","KC"],["MIA","NE"],
+   ["WAS","PHI"],["SEA","CHI"]],
+  // Week 9
+  [["BAL","JAX"],["LAC","HOU"],["NE","GB"],["SF","LV"],["SEA","ARI"],["CHI","TB"],
+   ["ATL","CIN"],["IND","DAL"],["KC","NYJ"],["MIA","DET"],["NO","CLE"],["PHI","NYG"],
+   ["WAS","LAR"],["CAR","DEN"],["MIN","BUF"]],
+  // Week 10
+  [["NYG","WAS"],["DET","NE"],["ATL","KC"],["CLE","HOU"],["GB","MIN"],["TEN","JAX"],
+   ["IND","MIA"],["NO","CAR"],["NYJ","BUF"],["LV","SEA"],["ARI","LAR"],["DAL","SF"],
+   ["CIN","PIT"],["BAL","LAC"]],
+  // Week 11
+  [["HOU","IND"],["BUF","MIA"],["CHI","NO"],["DAL","TEN"],["DET","TB"],["KC","ARI"],
+   ["NYG","JAX"],["CAR","BAL"],["LAC","NYJ"],["DEN","LV"],["PHI","PIT"],["SF","MIN"],
+   ["WAS","CIN"]],
+  // Week 12
+  [["LAR","GB"],["DET","CHI"],["DAL","PHI"],["BUF","KC"],["PIT","DEN"],["CIN","NO"],
+   ["CLE","LV"],["IND","NYG"],["MIA","NYJ"],["MIN","ATL"],["HOU","BAL"],["JAX","TEN"],
+   ["ARI","WAS"],["SF","SEA"],["LAC","NE"],["TB","CAR"]],
+  // Week 13
+  [["LAR","KC"],["ATL","DET"],["CHI","JAX"],["CLE","CIN"],["TEN","WAS"],["NO","GB"],
+   ["NYG","SF"],["TB","LAC"],["DEN","MIA"],["ARI","PHI"],["MIN","CAR"],["NE","BUF"],
+   ["PIT","HOU"],["SEA","DAL"]],
+  // Week 14
+  [["NE","MIN"],["CLE","ATL"],["DET","TEN"],["MIA","CHI"],["NYJ","DEN"],["PHI","IND"],
+   ["WAS","HOU"],["CAR","NO"],["BAL","TB"],["LV","LAC"],["CIN","KC"],["SF","LAR"],
+   ["SEA","NYG"],["GB","BUF"],["JAX","PIT"]],
+  // Week 15
+  [["LAC","SF"],["PHI","SEA"],["BUF","CHI"],["GB","MIA"],["TEN","IND"],["NYG","CLE"],
+   ["PIT","BAL"],["TB","NO"],["WAS","ATL"],["CAR","CIN"],["HOU","JAX"],["ARI","NYJ"],
+   ["LV","DEN"],["LAR","DAL"],["MIN","DET"],["KC","NE"]],
+  // Week 16
+  [["PHI","HOU"],["CHI","GB"],["DEN","BUF"],["SEA","LAR"],["MIA","LAC"],["NO","ARI"],
+   ["NYJ","NE"],["BAL","CLE"],["LV","TEN"],["KC","SF"],["DAL","JAX"],["DET","NYG"],
+   ["ATL","TB"],["IND","CIN"],["MIN","WAS"],["PIT","CAR"]],
+  // Week 17
+  [["CIN","BAL"],["ATL","NO"],["CLE","IND"],["DAL","NYG"],["TEN","PIT"],["MIA","BUF"],
+   ["NYJ","MIN"],["CAR","SEA"],["ARI","LV"],["CHI","DET"],["SF","PHI"],["GB","HOU"],
+   ["NE","DEN"],["LAC","KC"],["TB","LAR"],["JAX","WAS"]],
+  // Week 18
+  [["BUF","NYJ"],["CIN","CLE"],["DEN","LAC"],["GB","DET"],["IND","JAX"],["KC","LV"],
+   ["LAR","SEA"],["MIN","CHI"],["NE","MIA"],["NO","TB"],["NYG","PHI"],["ARI","SF"],
+   ["WAS","DAL"],["CAR","ATL"],["BAL","PIT"],["HOU","TEN"]],
+];
+
+// Expand the 2026 slate into the game's [home, away] full team names.
+function nfl2026Schedule() {
+  const byAbbr = {};
+  for (const n in TEAMS) byAbbr[TEAMS[n].abbr] = n;
+  return NFL_2026_SCHEDULE.map(week => week.map(g => [byAbbr[g[0]], byAbbr[g[1]]]));
+}
