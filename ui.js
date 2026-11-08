@@ -1081,7 +1081,8 @@ function statRowsHtml(game) {
   h += row("Rushing TDs", su.rushTDs, sa.rushTDs);
   h += row("1st downs", su.firstDowns, sa.firstDowns);
   h += row("Completions", su.completions + "/" + su.passes, sa.completions + "/" + sa.passes);
-  h += row("Turnovers", su.turnovers, sa.turnovers);
+  h += row("Turnovers (lost)", su.turnovers, sa.turnovers);
+  h += row("Takeaways", su.takeaways || 0, sa.takeaways || 0);
   h += row("Sacks allowed", su.sacks + " (" + su.sackYards + " yds)", sa.sacks + " (" + sa.sackYards + " yds)");
   h += row("Penalties", su.penalties, sa.penalties);
   h += row("Punts", su.punts, sa.punts);
@@ -1407,17 +1408,26 @@ function divisionFor(name) {
 
 function quickLeagueGame(homeName, awayName) {
   const scores = {}; scores[homeName] = 0; scores[awayName] = 0;
+  // Possessions swing from quarter to quarter: sometimes a team gets three
+  // drives, sometimes one, and the order is shuffled — so simmed games run the
+  // full range from shootouts to blowouts instead of the same tight score
+  // every week.
   for (let q = 0; q < 4; q++) {
-    for (const pair of [[homeName, awayName], [awayName, homeName], [homeName, awayName], [awayName, homeName]]) {
-      const off = TEAMS[pair[0]], def = TEAMS[pair[1]];
+    const drives = [];
+    for (const [offName, defName] of [[homeName, awayName], [awayName, homeName]]) {
+      const n = 1 + (Math.random() < 0.4 ? 1 : 0) + (Math.random() < 0.15 ? 1 : 0);
+      for (let i = 0; i < n; i++) drives.push([offName, defName]);
+    }
+    for (const [offName, defName] of shuffle(drives)) {
+      const off = TEAMS[offName], def = TEAMS[defName];
       const attack = (bonus(off.qb) + bonus(off.rb) + bonus(off.wr)) / 3;
       const stop = (bonus(def.lm) + bonus(def.lb) + bonus(def.db)) / 3;
-      const rv = 1 + Math.floor(Math.random() * 20) + Math.round(attack - stop) + (pair[0] === homeName ? 1 : 0);
+      const rv = 1 + Math.floor(Math.random() * 20) + Math.round(attack - stop) + (offName === homeName ? 1 : 0);
       if (rv >= 19) {
-        if (Math.random() < 0.86) scores[pair[0]] += 7;
-        else scores[pair[0]] += 3;
+        if (Math.random() < 0.86) scores[offName] += 7;
+        else scores[offName] += 3;
       } else if (rv >= 15) {
-        scores[pair[0]] += 3;
+        scores[offName] += 3;
       }
     }
   }

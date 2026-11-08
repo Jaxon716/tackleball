@@ -46,7 +46,7 @@ class Team {
                    touchdowns: 0, penalties: 0, injuries: 0,
                    qbYards: 0, rbYards: 0, wrYards: 0, qbTDs: 0, rbTDs: 0, wrTDs: 0, qbPassTDs: 0,
                    passTDs: 0, rushTDs: 0, stYards: 0, stTDs: 0,
-                   fumbles: 0, intsThrown: 0, intsMade: 0, sacksMade: 0, sackYards: 0 };
+                   fumbles: 0, intsThrown: 0, intsMade: 0, sacksMade: 0, sackYards: 0, takeaways: 0 };
   }
   b(stat) {
     return Math.max(0, this.bonuses[stat]
@@ -579,8 +579,11 @@ class Game {
         const chance = deff.b("DB") > off.b("QB") ? 2 : 1;
         if (1 + Math.floor(Math.random() * 6) <= chance) {
           turnover = true;
-          off.stats.turnovers++; deff.stats.turnovers++;
-          off.stats.intsThrown++; deff.stats.intsMade++;
+          // Only the team that gave the ball away is charged with a turnover;
+          // the defense gets the takeaway. (Charging both teams made every
+          // game's turnover column come out exactly even.)
+          off.stats.turnovers++;
+          off.stats.intsThrown++; deff.stats.intsMade++; deff.stats.takeaways++;
           await this.pres.banner("INTERCEPTED!", "bad", 1200);
           const [thrown] = roll(2, 6, true);
           let [ret, rtr] = roll(3, 6, true);
@@ -845,7 +848,9 @@ class Game {
     }
     await this._say("Fumble recovery: " + off.name + " roll " + a + ", " + deff.name + " roll " + b + ".", "dice");
     if (b > a) {
-      off.stats.turnovers++; deff.stats.turnovers++;
+      // The team that put it on the ground is charged with the turnover; the
+      // recovering defense gets the takeaway.
+      off.stats.turnovers++; deff.stats.takeaways++;
       if (b === 6) {
         const [run] = roll(1);
         await this._say(deff.name + " recover and advance " + run + " yards.", "turnover");
@@ -963,7 +968,9 @@ class Game {
       await this._say("Penalty declined — the play stands as it happened.");
       return;
     }
-    victim.stats.penalties++;
+    // Only the flagged team is charged with the penalty. (`victim` is the side
+    // that chooses to accept or decline — the defense on an offensive flag —
+    // so charging it too made both teams' penalty counts identical.)
     const offender = offensiveFoul ? off : deff;
     offender.stats.penalties++;
     if (offensiveFoul) {
