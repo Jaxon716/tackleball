@@ -704,6 +704,29 @@ function drawField() {
     }
   }
 
+  // Touchdown flash: the scoring team's end zone lights up in its colors.
+  if (FIELD.endZoneFlash) {
+    const fl = FIELD.endZoneFlash;
+    const age = Date.now() - fl.start;
+    if (age > 1500 || !TEAMS[fl.team]) {
+      FIELD.endZoneFlash = null;
+    } else {
+      // The scoring team's end zone lights up in its own colors for the score.
+      const ft = TEAMS[fl.team];
+      const left = FIELD.right && fl.team === FIELD.right.name;
+      const gx = left ? 0 : w - ez;
+      const a = 0.8 * (1 - age / 1500);
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = ft.primary;
+      ctx.fillRect(gx, 0, ez, ht);
+      ctx.globalAlpha = a * 0.3;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(gx, 0, ez, ht);
+      ctx.restore();
+    }
+  }
+
   // Yard lines every 5 yards
   ctx.strokeStyle = "#f5f5f0";
   for (let y = 0; y <= 100; y += 5) {
@@ -1033,14 +1056,24 @@ function askUI(prompt, options) {
   });
 }
 
-function showBanner(text, cls, ms) {
+function showBanner(text, cls, ms, teamName) {
   if (/NO GOOD!|FUMBLE!|INTERCEPTED!|SAFETY!/.test(text)) sfx("ooh");
   else if (/TOUCHDOWN!|GOOD!|COVERED!/.test(text)) sfx("roar");
   else if (/AUTOMATIC FIRST DOWN/.test(text)) sfx("chime");
   const b = $("#banner");
   b.innerHTML = "<span>" + text + "</span>";
   b.className = "show " + (cls || "");
-  return delay(ms || B()).then(() => { b.className = ""; });
+  // A touchdown banner wears the scoring team's colors.
+  const tm = teamName ? TEAMS[teamName] : null;
+  b.style.background = tm ? tm.primary : "";
+  b.style.color = tm ? tm.text : "";
+  b.style.borderColor = tm && tm.alt ? tm.alt : "";
+  return delay(ms || B()).then(() => {
+    b.className = "";
+    b.style.background = "";
+    b.style.color = "";
+    b.style.borderColor = "";
+  });
 }
 
 function showStatsReportOverlay(game, title) {
@@ -1211,7 +1244,15 @@ function showMatchupModal(game) {
 const pres = {
   game: null,
   async say(text, cls) { addFeed(text, cls); await delay(L()); },
-  async banner(text, cls, ms) { await showBanner(text, cls, ms); },
+  async banner(text, cls, ms) {
+    const game = this.game;
+    const scorer = (game && game.offense && /TOUCHDOWN/.test(text)) ? game.offense : null;
+    await showBanner(text, cls, ms, scorer ? scorer.name : null);
+    if (scorer && FIELD.left && FIELD.right) {
+      // Light up the end zone the points went into, in the scorer's colors.
+      FIELD.endZoneFlash = { team: scorer.name, start: Date.now() };
+    }
+  },
   async showMatchup(g) { await showMatchupModal(g); },
   async moveBall(from, to, ms, yOffNorm, meta) { await animateBall(from, to, ms, yOffNorm, meta); },
   setEndZones(leftTeam, rightTeam) { FIELD.left = leftTeam; FIELD.right = rightTeam; },
@@ -1266,6 +1307,10 @@ async function launchGame(userTeam, aiTeam, userHome, seasonInjuries) {
     const score = await game.start();
     pres.game = null;
     lastGameMajorInjuries = [...new Set(game.user.majorInjuries)];
+    lastGameStats = {
+      user: JSON.parse(JSON.stringify(game.user.stats)),
+      ai: JSON.parse(JSON.stringify(game.ai.stats)),
+    };
     return score;
   } catch (e) {
     if (e && e.abort) { pres.game = null; return null; }
@@ -1277,6 +1322,20 @@ async function launchGame(userTeam, aiTeam, userHome, seasonInjuries) {
 
 const SAVE_KEY = "gridiron_nfl_save_v1";
 let lastGameMajorInjuries = [];
+var lastGameStats = null; // box score of the game just played (season stats)
+
+// Every game you play is logged with its box score, which feeds the season
+// stats screen; the schedule screen reads the same results.
+function logUserGame(weekLabel, home, away, hs, as, playoff) {
+  cur.log = (cur.log || []).filter(e => !(e.week === weekLabel && !!e.playoff === !!playoff));
+  cur.log.push({
+    week: weekLabel, home, away, hs, as, playoff: !!playoff,
+    stats: lastGameStats && lastGameStats.user
+      ? JSON.parse(JSON.stringify(lastGameStats.user)) : null,
+  });
+  lastGameStats = null;
+  saveCareer();
+}
 
 function loadCareer() {
   try {
@@ -1590,6 +1649,116 @@ function standingsHtml(records) {
   return html;
 }
 
+/* ================= My stats & season schedule ================= */
+
+const BOX_FIELDS = ["plays", "passYards", "rushYards", "touchdowns", "passTDs", "rushTDs",
+  "firstDowns", "completions", "passes", "turnovers", "takeaways", "sacks", "sackYards",
+  "penalties", "injuries", "qbYards", "qbPassTDs", "qbTDs", "rbYards", "rbTDs",
+  "wrYards", "wrTDs", "sacksMade", "intsMade", "fumbles", "stYards", "stTDs"];
+
+// Your team's season totals and per-game averages, plus the position-by-position
+// stat lines (with the real roster names) built from every box score played.
+function seasonStatsHtml() {
+  const team = cur.userTeam;
+  const r = cur.records[team];
+  const games = (cur.log || []).filter(e => !e.playoff && e.stats);
+  let html = '<div class="panel-title">' + team + ' — Season Stats</div>';
+  html += '<div class="muted" style="font-size:12.5px;margin-bottom:10px">Record ' +
+    r.W + '-' + r.L + '-' + r.T + ' · PF ' + r.PF + ' · PA ' + r.PA + ' · ' +
+    games.length + ' game' + (games.length === 1 ? "" : "s") + ' logged</div>';
+  if (!games.length) {
+    html += '<div class="muted">Play a week to build your stat sheet.</div>';
+    return html;
+  }
+  const tot = {};
+  for (const k of BOX_FIELDS) tot[k] = 0;
+  for (const e of games) for (const k of BOX_FIELDS) tot[k] += Number(e.stats[k] || 0);
+  const n = games.length;
+  const per = k => (tot[k] / n).toFixed(1);
+  const line = (label, totalTxt, perTxt) =>
+    '<tr><td class="chip-cell">' + label + '</td><td>' + totalTxt + '</td><td>' + perTxt + '</td></tr>';
+  const row = (label, k) => line(label, tot[k], per(k));
+  html += '<div class="group-label">TEAM TOTALS</div>';
+  html += '<table class="info-table"><tr><th>Stat</th><th>Total</th><th>Per game</th></tr>';
+  html += line("Points for", r.PF, (r.PF / n).toFixed(1));
+  html += row("Pass yards", "passYards");
+  html += row("Rush yards", "rushYards");
+  html += line("Total yards", tot.passYards + tot.rushYards, ((tot.passYards + tot.rushYards) / n).toFixed(1));
+  html += row("Touchdowns", "touchdowns");
+  html += row("1st downs", "firstDowns");
+  html += line("Completions", tot.completions + "/" + tot.passes,
+    (tot.completions / n).toFixed(1) + "/" + (tot.passes / n).toFixed(1));
+  html += row("Turnovers lost", "turnovers");
+  html += row("Takeaways", "takeaways");
+  html += line("Sacks allowed", tot.sacks + " (" + tot.sackYards + " yds)", per("sacks"));
+  html += row("Penalties", "penalties");
+  html += row("Injuries", "injuries");
+  html += row("Return yards", "stYards");
+  html += '</table>';
+  const nm = p => rosterName(team, p) || p;
+  const prow = (pos, txt) =>
+    '<tr><td>' + pos + '</td><td>' + nm(pos) + '</td><td>' + txt + '</td></tr>';
+  html += '<div class="group-label">PLAYERS</div>';
+  html += '<table class="info-table"><tr><th>Pos</th><th>Player</th><th>Season line</th></tr>';
+  html += prow("QB", tot.qbYards + " pass yds · " + tot.qbPassTDs + " pass TD" +
+    (tot.qbTDs ? " · " + tot.qbTDs + " rush TD" : ""));
+  html += prow("RB", tot.rbYards + " rush yds · " + tot.rbTDs + " rush TD");
+  html += prow("WR", tot.wrYards + " rec yds · " + tot.wrTDs + " rec TD");
+  html += prow("LM", tot.sacksMade + " sacks");
+  html += prow("LB", Math.max(0, tot.takeaways - tot.intsMade) + " fumble recoveries");
+  html += prow("DB", tot.intsMade + " interceptions");
+  html += '</table>';
+  html += '<div class="muted" style="font-size:12px;margin-top:10px">Per game: ' +
+    per("passYards") + ' pass yds · ' + per("rushYards") + ' rush yds · ' +
+    per("turnovers") + ' turnovers lost · ' + per("penalties") + ' penalties</div>';
+  return html;
+}
+
+// Every team you have faced this season, home or away, with the score and the
+// result, plus any playoff games already played.
+function seasonScheduleHtml() {
+  const team = cur.userTeam;
+  const sched = cur.schedule || [];
+  const resultCell = wl => '<b style="color:' +
+    (wl === "W" ? "#7ef29b" : wl === "L" ? "#ff8f8f" : "#ffd77a") + '">' + wl + '</b>';
+  let html = '<div class="panel-title">' + team + ' — Season Schedule</div>';
+  html += '<table class="info-table"><tr><th>Wk</th><th>Matchup</th><th>Score</th><th>Res</th></tr>';
+  for (let wi = 0; wi < sched.length; wi++) {
+    const g = (sched[wi] || []).find(x => x[0] === team || x[1] === team);
+    if (!g) {
+      html += '<tr><td>' + (wi + 1) + '</td><td colspan="3" class="muted">Bye week</td></tr>';
+      continue;
+    }
+    const isHome = g[0] === team;
+    const opp = isHome ? g[1] : g[0];
+    const res = (cur.results[wi] || []).find(x => x.home === g[0] && x.away === g[1]);
+    let score = "—", resTxt = "";
+    if (res) {
+      const my = isHome ? res.hs : res.as, their = isHome ? res.as : res.hs;
+      score = my + "–" + their;
+      resTxt = resultCell(my > their ? "W" : their > my ? "L" : "T");
+    }
+    html += '<tr><td>' + (wi + 1) + '</td><td class="chip-cell">' + (isHome ? "vs " : "at ") +
+      chip(opp) + opp + '</td><td>' + score + '</td><td>' + resTxt + '</td></tr>';
+  }
+  html += '</table>';
+  const po = (cur.log || []).filter(e => e.playoff);
+  if (po.length) {
+    html += '<div class="group-label">PLAYOFFS</div>' +
+      '<table class="info-table"><tr><th>Round</th><th>Matchup</th><th>Score</th><th>Res</th></tr>';
+    for (const e of po) {
+      const isHome = e.home === team;
+      const opp = isHome ? e.away : e.home;
+      const my = isHome ? e.hs : e.as, their = isHome ? e.as : e.hs;
+      html += '<tr><td>' + e.week + '</td><td class="chip-cell">' + (isHome ? "vs " : "at ") +
+        chip(opp) + opp + '</td><td>' + my + "–" + their + '</td><td>' +
+        resultCell(my > their ? "W" : their > my ? "L" : "T") + '</td></tr>';
+    }
+    html += '</table>';
+  }
+  return html;
+}
+
 /* ================= Season hub ================= */
 
 function addSeasonLine(text) {
@@ -1786,6 +1955,14 @@ $("#ss-standings").onclick = () => {
   if (!cur) return;
   showInfo(standingsHtml(cur.records), "screen-season");
 };
+$("#ss-stats").onclick = () => {
+  if (!cur) return;
+  showInfo(seasonStatsHtml(), "screen-season");
+};
+$("#ss-schedule").onclick = () => {
+  if (!cur) return;
+  showInfo(seasonScheduleHtml(), "screen-season");
+};
 
 // Sim injuries: a simmed game has a chance of a season injury at a random
 // position for either team — recorded into the career injury list.
@@ -1893,6 +2070,7 @@ async function playWeek() {
     career.injuries[myTeam] = [...new Set([...(career.injuries[myTeam] || []), ...lastGameMajorInjuries])];
     saveCareer();
     addSeasonLine(TEAMS[away].abbr + " " + as + " — " + hs + " " + TEAMS[home].abbr + "  (your game)");
+    logUserGame(wi + 1, home, away, hs, as, false);
   }
   cur.weekSnap = null; // week complete — everything is counted exactly once now
   cur.week++;
@@ -1929,6 +2107,7 @@ async function playoffGame(a, b, round) {
     const my = score[cur.userTeam], their = score[cur.userTeam === a ? b : a];
     if (my > their) career.stats.wins++; else if (their > my) career.stats.losses++; else career.stats.ties++;
     career.injuries[cur.userTeam] = [...new Set([...(career.injuries[cur.userTeam] || []), ...lastGameMajorInjuries])];
+    logUserGame(round, a, b, hs, as, true);
     saveCareer();
   } else {
     const s = quickLeagueGame(a, b);

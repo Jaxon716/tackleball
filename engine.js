@@ -106,6 +106,13 @@ class Game {
     await this._say("Discipline dice: " + line.join(" · ") + ".", "dice");
   }
 
+  // Moments worth spending an action die on: third/fourth down, the red zone,
+  // and a one-score fourth quarter. Otherwise the AI saves its dice.
+  clutchSpot() {
+    const diff = Math.abs(this.score[this.user.name] - this.score[this.ai.name]);
+    return this.down >= 3 || this.yard >= 80 || (this.q >= 4 && diff <= 8);
+  }
+
   // Convert an offense-relative yard (0=own goal line) to the fixed on-screen position.
   absOf(team, y) { return team === this.leftTeam ? y : 100 - y; }
 
@@ -396,6 +403,10 @@ class Game {
 
   aiChoosePlay(off, deff) {
     const style = this.teamStyle(off);
+    // Victory formation: leading with the clock nearly gone, take the knee.
+    if (this.q >= 4 && this.score[off.name] > this.score[deff.name] && this.roundInQ >= 38) {
+      return "Kneel";
+    }
     if (this.down === 4) {
       const fgDist = 117 - this.yard;
       const diff = this.score[off.name] - this.score[deff.name];
@@ -405,6 +416,11 @@ class Game {
       // unless the game situation demands it.
       if (fgDist <= 45 && !hopeless) return "Field goal";
       if (fgDist <= 52 && !hopeless && Math.random() < 0.8) return "Field goal";
+      // Down two scores in the fourth: a field goal doesn't help — keep the
+      // drive alive even on 4th & long.
+      if (hopeless && this.yard >= 30 && this.toGo <= 8) {
+        return Math.random() < 0.65 ? "Pass" : "Run";
+      }
       // Elite teams play to win: outside long-FG range they take a smart
       // shot on 4th-and-manageable instead of always kicking.
       if (style.agg >= 0.65 && fgDist > 52 && this.toGo <= 6 && Math.random() < 0.45) {
@@ -551,7 +567,8 @@ class Game {
     }
     let defensiveActionBonus = deff === this.user ? this.userDefenseActionBonus : 0;
     this.userDefenseActionBonus = 0;
-    if (deff === this.ai && deff.actionDice > 0 && Math.random() < 0.20) {
+    if (deff === this.ai && deff.actionDice > 0 &&
+        Math.random() < (this.clutchSpot() ? 0.55 : 0.08)) {
       deff.actionDice--;
       defensiveActionBonus = 1 + Math.floor(Math.random() * 6);
       await this._say("AI spends a defensive action die: +" + defensiveActionBonus + " to the DC.", "dice");
@@ -570,7 +587,8 @@ class Game {
         actionBonus = 1 + Math.floor(Math.random() * 6);
         await this._say("Your offensive action die adds +" + actionBonus + " to the attack.", "dice");
       }
-    } else if (off === this.ai && off.actionDice > 0 && Math.random() < 0.25) {
+    } else if (off === this.ai && off.actionDice > 0 &&
+               Math.random() < (this.clutchSpot() ? 0.6 : 0.1)) {
       off.actionDice--;
       actionBonus = 1 + Math.floor(Math.random() * 6);
       await this._say("AI spends an offensive action die: +" + actionBonus + " to attack.", "dice");
@@ -980,7 +998,12 @@ class Game {
         // as deep, or a gain bigger than the flag's yardage.
         const spotAfterPenalty = Math.min(99, playStartYard + penaltyYards);
         const wouldAutoFirst = [13, 14, 15, 16, 17, 18].includes(foul);
-        decline = playFirstDown && !wouldAutoFirst && this.yard >= spotAfterPenalty - 3
+        // A failed third or fourth down is about to end the drive: a cheap
+        // five-yard flag that hands out a fresh set of downs is a bad trade,
+        // so decline it and take the stop.
+        const driveStopper = this.down >= 3 && !playFirstDown && !wouldAutoFirst;
+        decline = (driveStopper && penaltyYards <= 5)
+                  || playFirstDown && !wouldAutoFirst && this.yard >= spotAfterPenalty - 3
                   || playGain > penaltyYards;
         // But never decline a flag that would hand the offense a free first
         // down in scoring range — points outweigh a decent gain.
