@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Tackleball">
-<link rel="stylesheet" href="style.css"/>
+<link rel="stylesheet" href="style.css?v=41"/>
 </head>
 <body>
 <div id="app">
@@ -34,7 +34,7 @@
         <button id="btn-teams" class="menu-btn">Teams &amp; Ratings</button>
         <button id="btn-history" class="menu-btn">Career History</button>
       </div>
-      <div class="foot">Tackleball v40 · 2026 NFL schedule in season mode · Season stats &amp; schedule screens · Current NFL rosters imported · Rules adapted from Pen &amp; Paper Football (John M. Stater, 2017). Team names and colors are used in a fan context; ratings are game adaptations, not official NFL data.</div>
+      <div class="foot">Tackleball v41 · 2026 NFL schedule in season mode · Season stats &amp; schedule on the season screen · Current NFL rosters imported · Rules adapted from Pen &amp; Paper Football (John M. Stater, 2017). Team names and colors are used in a fan context; ratings are game adaptations, not official NFL data.</div>
     </div>
   </div>
 
@@ -116,13 +116,13 @@ window.addEventListener("unhandledrejection", function (e) {
   window.onerror(String((r && r.message) || r || "unhandled error"), "", "");
 });
 </script>
-<script src="data.js"></script>
-<script src="engine.js"></script>
-<script src="ui.js"></script>
+<script src="data.js?v=41"></script>
+<script src="engine.js?v=41"></script>
+<script src="ui.js?v=41"></script>
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", function () {
-    navigator.serviceWorker.register("sw.js").catch(function () { /* not available (e.g., local file) */ });
+    navigator.serviceWorker.register("sw.js?v=41").catch(function () { /* not available (e.g., local file) */ });
   });
 }
 </script>

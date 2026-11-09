@@ -1061,19 +1061,16 @@ function showBanner(text, cls, ms, teamName) {
   else if (/TOUCHDOWN!|GOOD!|COVERED!/.test(text)) sfx("roar");
   else if (/AUTOMATIC FIRST DOWN/.test(text)) sfx("chime");
   const b = $("#banner");
-  b.innerHTML = "<span>" + text + "</span>";
-  b.className = "show " + (cls || "");
-  // A touchdown banner wears the scoring team's colors.
+  // A touchdown banner wears the scoring team's colors. The colour goes on the
+  // inner span, which is the element that actually carries the banner styling.
   const tm = teamName ? TEAMS[teamName] : null;
-  b.style.background = tm ? tm.primary : "";
-  b.style.color = tm ? tm.text : "";
-  b.style.borderColor = tm && tm.alt ? tm.alt : "";
-  return delay(ms || B()).then(() => {
-    b.className = "";
-    b.style.background = "";
-    b.style.color = "";
-    b.style.borderColor = "";
-  });
+  const style = tm
+    ? ' style="background:' + tm.primary + ';border-color:' + (tm.alt || tm.primary) +
+      ';color:' + tm.text + '"'
+    : "";
+  b.innerHTML = "<span" + style + ">" + text + "</span>";
+  b.className = "show " + (cls || "");
+  return delay(ms || B()).then(() => { b.className = ""; });
 }
 
 function showStatsReportOverlay(game, title) {
@@ -1658,12 +1655,11 @@ const BOX_FIELDS = ["plays", "passYards", "rushYards", "touchdowns", "passTDs", 
 
 // Your team's season totals and per-game averages, plus the position-by-position
 // stat lines (with the real roster names) built from every box score played.
-function seasonStatsHtml() {
+function seasonStatsInner() {
   const team = cur.userTeam;
   const r = cur.records[team];
   const games = (cur.log || []).filter(e => !e.playoff && e.stats);
-  let html = '<div class="panel-title">' + team + ' — Season Stats</div>';
-  html += '<div class="muted" style="font-size:12.5px;margin-bottom:10px">Record ' +
+  let html = '<div class="muted" style="font-size:12.5px;margin-bottom:10px">Record ' +
     r.W + '-' + r.L + '-' + r.T + ' · PF ' + r.PF + ' · PA ' + r.PA + ' · ' +
     games.length + ' game' + (games.length === 1 ? "" : "s") + ' logged</div>';
   if (!games.length) {
@@ -1714,18 +1710,18 @@ function seasonStatsHtml() {
   return html;
 }
 
+function seasonStatsHtml() {
+  return '<div class="panel-title">' + cur.userTeam + ' — Season Stats</div>' + seasonStatsInner();
+}
+
 // Every team you have faced this season, home or away, with the score and the
 // result, plus any playoff games already played.
-function seasonScheduleHtml() {
+function seasonScheduleInner() {
   const team = cur.userTeam;
   const sched = cur.schedule || [];
   const resultCell = wl => '<b style="color:' +
     (wl === "W" ? "#7ef29b" : wl === "L" ? "#ff8f8f" : "#ffd77a") + '">' + wl + '</b>';
-  let html = '<div class="panel-title">' + team + ' — Season Schedule</div>';
-  const rec = cur.records[team];
-  html += '<div class="muted" style="font-size:12.5px;margin-bottom:10px">Record ' +
-    rec.W + '-' + rec.L + '-' + rec.T + ' · PF ' + rec.PF + ' · PA ' + rec.PA +
-    ' · ' + Math.min(cur.week, sched.length) + ' of ' + sched.length + ' weeks played</div>';
+  let html = '';
   html += '<table class="info-table"><tr><th>Wk</th><th>Matchup</th><th>Score</th><th>Res</th></tr>';
   for (let wi = 0; wi < sched.length; wi++) {
     const g = (sched[wi] || []).find(x => x[0] === team || x[1] === team);
@@ -1761,6 +1757,27 @@ function seasonScheduleHtml() {
     html += '</table>';
   }
   return html;
+}
+
+function seasonScheduleHtml() {
+  const team = cur.userTeam;
+  const rec = cur.records[team];
+  const sched = cur.schedule || [];
+  return '<div class="panel-title">' + team + ' — Season Schedule</div>' +
+    '<div class="muted" style="font-size:12.5px;margin-bottom:10px">Record ' +
+    rec.W + '-' + rec.L + '-' + rec.T + ' · PF ' + rec.PF + ' · PA ' + rec.PA +
+    ' · ' + Math.min(cur.week, sched.length) + ' of ' + sched.length + ' weeks played</div>' +
+    seasonScheduleInner();
+}
+
+// The schedule and the stat sheet are also built right into the hub as
+// expandable sections — seeing them never depends on a button tap.
+function hubExtrasHtml() {
+  if (!cur) return "";
+  return '<details class="hub-details"><summary>Season schedule</summary>' +
+      seasonScheduleInner() + '</details>' +
+    '<details class="hub-details"><summary>My stats</summary>' +
+      seasonStatsInner() + '</details>';
 }
 
 /* ================= Season hub ================= */
@@ -1889,6 +1906,9 @@ function renderSeasonHub() {
     };
     body.appendChild(btn);
   }
+  const extras = h("div", null);
+  extras.innerHTML = hubExtrasHtml();
+  body.appendChild(extras);
   $("#season-feed").innerHTML = "";
 }
 

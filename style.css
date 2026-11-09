@@ -193,6 +193,15 @@ body {
 .sh-week { color: var(--muted); font-size: 12px; margin: 3px 0 12px; letter-spacing: 1px; }
 #season-feed { margin-top: 10px; font-size: 13px; color: #cfe0f0; max-height: 140px; overflow-y: auto; }
 #season-feed div { padding: 2px 0; border-bottom: 1px solid #16283e; }
+.hub-details { margin-top: 10px; border-top: 1px solid #1c3149; padding-top: 6px; }
+.hub-details summary {
+  cursor: pointer; list-style: none; font-size: 11.5px; font-weight: 800;
+  letter-spacing: 1.4px; color: #9fb4c8; padding: 7px 2px; text-transform: uppercase;
+}
+.hub-details summary::-webkit-details-marker { display: none; }
+.hub-details summary::after { content: "  ▸"; color: var(--gold); }
+.hub-details[open] summary { color: var(--gold); }
+.hub-details[open] summary::after { content: "  ▾"; }
 
 /* ---------- Overlays ---------- */
 .overlay {
