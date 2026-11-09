@@ -1722,6 +1722,10 @@ function seasonScheduleHtml() {
   const resultCell = wl => '<b style="color:' +
     (wl === "W" ? "#7ef29b" : wl === "L" ? "#ff8f8f" : "#ffd77a") + '">' + wl + '</b>';
   let html = '<div class="panel-title">' + team + ' — Season Schedule</div>';
+  const rec = cur.records[team];
+  html += '<div class="muted" style="font-size:12.5px;margin-bottom:10px">Record ' +
+    rec.W + '-' + rec.L + '-' + rec.T + ' · PF ' + rec.PF + ' · PA ' + rec.PA +
+    ' · ' + Math.min(cur.week, sched.length) + ' of ' + sched.length + ' weeks played</div>';
   html += '<table class="info-table"><tr><th>Wk</th><th>Matchup</th><th>Score</th><th>Res</th></tr>';
   for (let wi = 0; wi < sched.length; wi++) {
     const g = (sched[wi] || []).find(x => x[0] === team || x[1] === team);
@@ -1934,35 +1938,42 @@ $("#btn-continue").onclick = () => {
   showScreen("screen-season");
 };
 
-$("#ss-menu").onclick = () => { saveCareer(); showScreen("screen-title"); };
+// Every season-screen button is bound through this guard, so an older cached
+// index.html can never break the rest of the app on load.
+function bindClick(sel, fn) {
+  const el = $("#" + sel);
+  if (el) el.onclick = fn;
+}
+bindClick("ss-menu", () => { saveCareer(); showScreen("screen-title"); });
 let ssDeleteArmed = false;
-$("#ss-delete").onclick = () => {
+bindClick("ss-delete", () => {
+  const btn = $("#ss-delete");
   if (!ssDeleteArmed) {
     ssDeleteArmed = true;
-    $("#ss-delete").textContent = "Tap again to confirm delete";
+    if (btn) btn.textContent = "Tap again to confirm delete";
     return;
   }
   ssDeleteArmed = false;
-  $("#ss-delete").textContent = "Delete Saved Season";
+  if (btn) btn.textContent = "Delete Saved Season";
   career.current = null;
   cur = null;
   saveCareer();
   renderTitle();
   showScreen("screen-title");
   modal("Saved season deleted.");
-};
-$("#ss-standings").onclick = () => {
+});
+bindClick("ss-standings", () => {
   if (!cur) return;
   showInfo(standingsHtml(cur.records), "screen-season");
-};
-$("#ss-stats").onclick = () => {
+});
+bindClick("ss-stats", () => {
   if (!cur) return;
   showInfo(seasonStatsHtml(), "screen-season");
-};
-$("#ss-schedule").onclick = () => {
+});
+bindClick("ss-schedule", () => {
   if (!cur) return;
   showInfo(seasonScheduleHtml(), "screen-season");
-};
+});
 
 // Sim injuries: a simmed game has a chance of a season injury at a random
 // position for either team — recorded into the career injury list.
