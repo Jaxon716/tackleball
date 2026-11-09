@@ -39,6 +39,8 @@ class Team {
     for (const k in this.scores) this.bonuses[k] = bonus(this.scores[k]);
     this.home = home;
     this.actionDice = home ? 4 : 3; // home field gets one extra action die
+    this.flagWeight = 1;            // how flag-prone this team is today (1d6 at kickoff)
+    this.disciplineRoll = 4;
     this.minorInjuries = [];
     this.majorInjuries = [];
     this.stats = { plays: 0, rushes: 0, rushYards: 0, passes: 0, completions: 0, passYards: 0,
@@ -87,6 +89,23 @@ class Game {
 
   other(team) { return team === this.user ? this.ai : this.user; }
 
+  // Officials' mood for the day: each team rolls 1d6 at kickoff for how
+  // disciplined it plays. A flag-prone team draws flags on BOTH sides of the
+  // ball; a clean one rarely does. That is what keeps the two teams' penalty
+  // counts independent game to game instead of tracking each other.
+  async rollDiscipline() {
+    const words = { 1: "flag-prone", 2: "sloppy", 3: "average", 4: "steady", 5: "tidy", 6: "clean" };
+    const weights = { 1: 2.5, 2: 1.7, 3: 1.2, 4: 0.9, 5: 0.6, 6: 0.35 };
+    const line = [];
+    for (const t of this.teams) {
+      const d = 1 + Math.floor(Math.random() * 6);
+      t.disciplineRoll = d;
+      t.flagWeight = weights[d];
+      line.push(t.name + " 1d6 = " + d + " (" + words[d] + ")");
+    }
+    await this._say("Discipline dice: " + line.join(" · ") + ".", "dice");
+  }
+
   // Convert an offense-relative yard (0=own goal line) to the fixed on-screen position.
   absOf(team, y) { return team === this.leftTeam ? y : 100 - y; }
 
@@ -126,6 +145,7 @@ class Game {
 
   async start() {
     this.pres.setEndZones(this.leftTeam, this.rightTeam);
+    await this.rollDiscipline();
     // Teams face off: the pre-game matchup card, then you say when you're ready.
     await this.pres.showMatchup(this);
     await this.pres.banner("COIN TOSS", "neutral", 900);
@@ -898,9 +918,18 @@ class Game {
       await this._say("Major injury: " + team.name + " " + (nm ? nm : stat) + " is reduced for the remainder of the season.", "penalty");
       return;
     }
+    // Which side draws the flag is weighted by each team's discipline today —
+    // the flag-prone team is the one flagged whether the foul is on its offense
+    // or its defense, so the two teams' penalty counts no longer land on each
+    // other game after game. The foul itself still comes from the book's 1d20
+    // table: 1-12 are offensive fouls, 13-20 defensive.
+    const wOff = 0.6 * off.flagWeight;
+    const wDef = 0.4 * deff.flagWeight;
+    const offensiveFoul = Math.random() < wOff / (wOff + wDef);
     let foul;
     while (true) {
-      foul = 1 + Math.floor(Math.random() * 20);
+      foul = offensiveFoul ? 1 + Math.floor(Math.random() * 12)
+                           : 13 + Math.floor(Math.random() * 8);
       if (foul === 12 && kind !== "pass") continue;
       if ((foul === 13 || foul === 14) && kind !== "pass") continue;
       break;
@@ -917,7 +946,6 @@ class Game {
     };
     const yardsByFoul = { 1: 5, 2: 5, 3: 5, 4: 5, 5: 10, 6: 10, 7: 10, 8: 10, 9: 10, 10: 10,
                           11: 15, 12: 10, 14: 15, 15: 15, 16: 15, 17: 5, 18: 5, 19: 5, 20: 5 };
-    const offensiveFoul = foul <= 12;
     const victim = offensiveFoul ? deff : off;
     const penaltyYards = yardsByFoul[foul] || 0;
     await this._say("Penalty roll: 1d20 = " + foul + " → " + labels[foul] + ".", "penalty");
